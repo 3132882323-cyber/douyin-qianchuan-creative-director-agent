@@ -1,33 +1,47 @@
-# 抖音千川素材编导 Agent
+# 抖音千川素材编导 Agent（浏览器扩展）
 
-一个面向千川投手和素材编导的开源 Codex 插件。它把历史投放报表转成素材洞察、控制变量测试矩阵和下一轮拍摄方向，并将平台素材匹配回商家自有母版。
+一个运行在 Chrome/Edge 侧边栏里的千川素材分析与编导助手。导入千川 CSV 报表后，它会在本地完成素材分层、创意标签归因和下一轮单变量测试矩阵生成。
 
-## 当前能力
+## 功能
 
-- 读取千川 CSV 导出表并自动映射常用字段
-- 按“高消耗且达标、起量但不达标、低曝光待验证”分组
-- 聚合人群、钩子、卖点和场景表现
-- 生成单变量测试矩阵
-- 建立自有母版指纹并匹配平台素材
-- 明确区分确定匹配与需要人工确认的候选
+- 千川 CSV 报表导入与常用字段自动映射
+- 高消耗达标、起量不达标、低曝光待验证三类分层
+- 人群、钩子、卖点、场景表现聚合
+- 下一轮单变量测试矩阵
+- JSON/Markdown 分析结果导出
+- 平台素材与商家自有母版的本地指纹匹配
+- 所有数据只在浏览器本地处理
 
-本项目不提供暗水印移除、破解、定位或平台风控规避能力。获得干净版本的合规方式是匹配商家自有母版，并从自有原片重新生产。
+本项目不提供暗水印移除、破解、定位或平台风控规避。需要干净素材时，应匹配商家自有母版并从原片重新生产。
+
+## 安装
+
+1. 下载或克隆本仓库。
+2. 打开 Chrome 的 `chrome://extensions`，或 Edge 的 `edge://extensions`。
+3. 打开“开发者模式”。
+4. 点击“加载已解压的扩展程序”，选择本仓库根目录。
+5. 点击浏览器工具栏中的扩展图标，侧边栏将自动打开。
+
+需要 Chrome 114+ 或相应版本的 Chromium Edge。
 
 ## 使用
 
-在 Codex 中安装插件后，可以这样调用：
+1. 在“报表分析”页选择千川导出的 CSV。
+2. 设置目标 ROI，点击“开始分析”。
+3. 查看素材分层、跑量素材和测试矩阵。
+4. 在“母版匹配”页选择平台素材和自有母版文件夹。
+5. 只有“指纹完全一致”属于确定匹配，其余候选需人工确认。
 
-```text
-使用 $qianchuan-creative-director 分析这份千川报表，生成下一轮测试矩阵。
-```
+示例报表位于 `examples/sample-report.csv`。
 
-也可以直接运行脚本：
+## 开发
 
 ```powershell
-python skills/qianchuan-creative-director/scripts/analyze_report.py examples/sample-report.csv --target-roi 1.5 --output analysis.json
-python skills/qianchuan-creative-director/scripts/match_owned_masters.py platform-assets owned-masters --output matches.json
+npm test
 ```
 
-## 开源许可
+项目不依赖构建工具或远程脚本，直接加载源码即可运行。
 
-MIT。投放报表、素材、模型密钥和商家数据不应提交到公开仓库。
+## 隐私与许可
+
+参见 [PRIVACY.md](PRIVACY.md)。项目使用 MIT 许可证。

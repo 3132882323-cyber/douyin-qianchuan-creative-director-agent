@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "抖音千川素材编导 Agent",
+  "short_name": "千川编导",
+  "version": "0.2.0",
+  "description": "在浏览器侧边栏本地分析千川素材报表，生成创意测试矩阵并匹配商家自有母版。",
+  "minimum_chrome_version": "114",
+  "permissions": ["sidePanel", "storage"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "打开千川素材编导"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "homepage_url": "https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent"
+}

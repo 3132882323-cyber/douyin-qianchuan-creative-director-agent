@@ -1,8 +1,6 @@
-__pycache__/
-*.pyc
-.env
-analysis.json
-matches.json
+node_modules/
+.DS_Store
+*.zip
+private-data/
 platform-assets/
 owned-masters/
-private-data/

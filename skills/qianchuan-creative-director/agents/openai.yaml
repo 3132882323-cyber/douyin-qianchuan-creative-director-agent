@@ -1,7 +1,0 @@
-interface:
-  display_name: "千川素材编导"
-  short_description: "分析千川投放素材，生成可验证的创意测试矩阵与编导方案"
-  default_prompt: "使用 $qianchuan-creative-director 分析我的千川报表与素材，并生成下一轮测试方案。"
-
-policy:
-  allow_implicit_invocation: true

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>千川素材编导</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <header class="hero">
+      <div class="brand-mark">千</div>
+      <div>
+        <p class="eyebrow">CREATIVE COPILOT</p>
+        <h1>千川素材编导</h1>
+        <p>用历史表现决定下一批拍什么</p>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="功能切换">
+      <button class="tab active" data-view="analysis">报表分析</button>
+      <button class="tab" data-view="masters">母版匹配</button>
+      <button class="tab" data-view="about">说明</button>
+    </nav>
+
+    <main>
+      <section id="analysis" class="view active">
+        <div class="card upload-card">
+          <label class="file-drop" for="report-file">
+            <span class="file-icon">CSV</span>
+            <strong>选择千川报表</strong>
+            <small id="report-file-name">支持 UTF-8 CSV，示例字段见项目 README</small>
+          </label>
+          <input id="report-file" type="file" accept=".csv,text/csv" hidden>
+          <label class="field">目标支付 ROI
+            <input id="target-roi" type="number" value="1.5" min="0" step="0.1">
+          </label>
+          <button id="analyze-button" class="primary" disabled>开始分析</button>
+          <p id="analysis-error" class="error" role="alert"></p>
+        </div>
+
+        <section id="results" hidden>
+          <div class="metrics">
+            <article><span>素材</span><strong id="metric-count">0</strong></article>
+            <article><span>总消耗</span><strong id="metric-spend">0</strong></article>
+            <article><span>混合 ROI</span><strong id="metric-roi">0</strong></article>
+          </div>
+          <div class="card">
+            <div class="section-title"><h2>素材分层</h2><span>按消耗中位数与目标 ROI</span></div>
+            <div id="segments" class="segments"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><h2>优先复盘素材</h2><span>最多显示 5 条</span></div>
+            <div id="top-creatives" class="stack"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><h2>下一轮测试矩阵</h2><span>每轮只改变一个变量</span></div>
+            <div id="test-matrix" class="stack"></div>
+          </div>
+          <div class="actions">
+            <button id="export-json" class="secondary">导出 JSON</button>
+            <button id="export-md" class="secondary">导出 Markdown</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="masters" class="view">
+        <div class="card">
+          <div class="section-title"><h2>寻找自有母版</h2><span>所有文件只在本地计算</span></div>
+          <label class="file-drop compact" for="platform-files">
+            <strong>选择平台素材</strong><small id="platform-count">可多选视频或图片</small>
+          </label>
+          <input id="platform-files" type="file" accept="video/*,image/*" multiple hidden>
+          <label class="file-drop compact" for="master-files">
+            <strong>选择自有母版文件夹</strong><small id="master-count">请选择商家拥有版权的原片目录</small>
+          </label>
+          <input id="master-files" type="file" accept="video/*,image/*" webkitdirectory multiple hidden>
+          <button id="match-button" class="primary" disabled>开始匹配</button>
+          <div id="match-progress" class="progress" hidden><span></span></div>
+          <p id="match-error" class="error" role="alert"></p>
+        </div>
+        <div id="match-results" class="card" hidden>
+          <div class="section-title"><h2>匹配结果</h2><span id="match-summary"></span></div>
+          <div id="match-list" class="stack"></div>
+          <button id="export-matches" class="secondary full">导出匹配清单</button>
+        </div>
+      </section>
+
+      <section id="about" class="view">
+        <div class="card prose">
+          <h2>边界与隐私</h2>
+          <p>扩展不会上传报表或素材，也不会读取千川账号密码或拦截网络请求。</p>
+          <p>母版匹配仅用于寻找商家自有源文件，不移除、破解、定位或规避平台暗水印。</p>
+          <h3>判断标准</h3>
+          <ul>
+            <li><strong>指纹完全一致：</strong>可以确定是同一文件。</li>
+            <li><strong>名称与大小候选：</strong>需要人工确认。</li>
+            <li><strong>仅名称候选：</strong>只作为查找线索。</li>
+          </ul>
+          <a href="https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent" target="_blank" rel="noreferrer">查看开源仓库</a>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

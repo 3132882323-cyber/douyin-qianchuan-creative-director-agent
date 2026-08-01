@@ -1,0 +1,11 @@
+{
+  "name": "douyin-qianchuan-creative-director-agent",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check service-worker.js && node --check sidepanel.js && node --check src/core.js"
+  },
+  "license": "MIT"
+}
