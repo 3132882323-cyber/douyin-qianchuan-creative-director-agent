@@ -1,0 +1,26 @@
+{
+  "name": "qianchuan-creative-director",
+  "version": "0.1.0",
+  "description": "Analyze Qianchuan creative performance, plan controlled tests, and match platform assets to merchant-owned masters.",
+  "author": {
+    "name": "3132882323-cyber",
+    "url": "https://github.com/3132882323-cyber"
+  },
+  "homepage": "https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent",
+  "repository": "https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent",
+  "license": "MIT",
+  "keywords": ["qianchuan", "douyin", "creative", "advertising", "agent"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "千川素材编导",
+    "shortDescription": "分析投放素材并生成下一轮可验证的创意测试方案",
+    "longDescription": "导入千川报表，提炼跑量素材结构，生成控制变量的脚本与分镜方向，并将平台素材匹配回商家自有母版。",
+    "developerName": "Qianchuan Creative Director contributors",
+    "category": "Productivity",
+    "capabilities": ["Analyze", "Write"],
+    "defaultPrompt": [
+      "分析这份千川素材报表，生成下一轮测试矩阵。",
+      "把这些素材匹配到我的自有母版库。"
+    ]
+  }
+}
