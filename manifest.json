@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "抖音千川素材编导 Agent",
   "short_name": "千川编导",
-  "version": "0.2.0",
-  "description": "在浏览器侧边栏本地分析千川素材报表，生成创意测试矩阵并匹配商家自有母版。",
+  "version": "0.2.1",
+  "description": "专为抖音千川素材编导打造的开源侧边栏扩展：分析投放素材、生成单变量测试矩阵并匹配商家自有母版。",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "storage"],
   "background": {
