@@ -3,40 +3,128 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>千川素材编导</title>
+    <title>抖音千川素材编导 Agent</title>
     <link rel="stylesheet" href="sidepanel.css">
   </head>
   <body>
     <header class="hero">
-      <div class="brand-mark">千</div>
-      <div>
-        <p class="eyebrow">CREATIVE COPILOT</p>
-        <h1>千川素材编导</h1>
-        <p>用历史表现决定下一批拍什么</p>
+      <div class="brand-mark" aria-hidden="true">千</div>
+      <div class="hero-copy">
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V0.3.1</p>
+        <h1>抖音千川素材编导</h1>
+        <p>从历史复盘到下一批可拍摄任务</p>
       </div>
+      <span class="local-pill" title="数据仅保存在当前浏览器">本地</span>
     </header>
 
-    <nav class="tabs" aria-label="功能切换">
-      <button class="tab active" data-view="analysis">报表分析</button>
-      <button class="tab" data-view="masters">母版匹配</button>
-      <button class="tab" data-view="about">说明</button>
+    <nav class="tabs" aria-label="主工作区">
+      <button class="tab active" data-view="brief"><span>01</span>商品 Brief</button>
+      <button class="tab" data-view="review"><span>02</span>素材复盘</button>
+      <button class="tab" data-view="next"><span>03</span>下一批拍什么</button>
+      <button class="tab" data-view="library"><span>04</span>素材库</button>
     </nav>
 
     <main>
-      <section id="analysis" class="view active">
+      <section id="brief" class="view active">
+        <div class="page-heading">
+          <div><p class="step">STEP 01</p><h2>先把商品事实说清楚</h2></div>
+          <span id="brief-save-state" class="status-dot">未保存</span>
+        </div>
+        <div class="card">
+          <label class="input-block">快速模板
+            <select id="brief-template">
+              <option value="custom">空白模板</option>
+              <option value="apparel">服饰</option>
+              <option value="beauty">美妆</option>
+              <option value="food">食品</option>
+              <option value="cleaning">家清</option>
+            </select>
+          </label>
+          <p class="helper">模板只补充空白字段，不会覆盖已经填写的内容。</p>
+        </div>
+        <form id="brief-form" class="card form-grid">
+          <label class="input-block required">商品名称
+            <input name="productName" type="text" placeholder="例如：夏季凉感防晒衣" required>
+          </label>
+          <label class="input-block">商品类目
+            <input name="category" type="text" placeholder="例如：女装 / 防晒服">
+          </label>
+          <label class="input-block wide required">核心人群
+            <textarea name="targetAudience" rows="2" placeholder="谁在什么情况下最需要它？"></textarea>
+          </label>
+          <label class="input-block wide required">用户痛点
+            <textarea name="painPoints" rows="3" placeholder="一行一个，或用逗号分隔"></textarea>
+          </label>
+          <label class="input-block wide required">核心卖点
+            <textarea name="sellingPoints" rows="3" placeholder="写可拍出来、可验证的利益点"></textarea>
+          </label>
+          <label class="input-block wide">信任证据
+            <textarea name="evidence" rows="3" placeholder="检测报告、材质细节、实测、买家反馈等"></textarea>
+          </label>
+          <label class="input-block wide">价格与促销
+            <textarea name="promotion" rows="2" placeholder="到手价、赠品、活动时间；以商品页事实为准"></textarea>
+          </label>
+          <label class="input-block wide">拍摄条件
+            <textarea name="shootingConditions" rows="3" placeholder="演员、场地、道具、机位和必须拍到的画面"></textarea>
+          </label>
+          <label class="input-block wide danger-label">禁用表达
+            <textarea name="forbiddenExpressions" rows="2" placeholder="品牌禁词、无法证明的功效、绝对化用语"></textarea>
+          </label>
+          <label class="input-block">目标时长
+            <select name="duration">
+              <option value="15">15 秒</option>
+              <option value="30">30 秒</option>
+              <option value="60">60 秒</option>
+            </select>
+          </label>
+          <div class="form-actions wide">
+            <button id="save-brief" type="submit" class="primary">保存商品 Brief</button>
+            <button type="button" class="secondary" data-nav="review">继续素材复盘 →</button>
+          </div>
+          <p id="brief-error" class="error wide" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="review" class="view">
+        <div class="page-heading">
+          <div><p class="step">STEP 02</p><h2>导入历史数据并补齐标签</h2></div>
+          <span id="report-state" class="status-dot">等待 CSV</span>
+        </div>
         <div class="card upload-card">
           <label class="file-drop" for="report-file">
             <span class="file-icon">CSV</span>
-            <strong>选择千川报表</strong>
-            <small id="report-file-name">支持 UTF-8 CSV，示例字段见项目 README</small>
+            <strong>选择千川素材报表</strong>
+            <small id="report-file-name">支持逗号、制表符或分号分隔的 UTF-8 文件</small>
           </label>
-          <input id="report-file" type="file" accept=".csv,text/csv" hidden>
+          <input id="report-file" type="file" accept=".csv,text/csv,.tsv,text/tab-separated-values" hidden>
           <label class="field">目标支付 ROI
             <input id="target-roi" type="number" value="1.5" min="0" step="0.1">
           </label>
-          <button id="analyze-button" class="primary" disabled>开始分析</button>
-          <p id="analysis-error" class="error" role="alert"></p>
         </div>
+
+        <section id="import-workspace" hidden>
+          <div class="card">
+            <div class="section-title"><h3>字段映射</h3><span id="mapping-status"></span></div>
+            <p class="helper">系统会识别常用千川字段，也可以手动调整。素材名称和消耗为必需字段。</p>
+            <div id="mapping-grid" class="mapping-grid"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><h3>导入预览</h3><span>前 5 行</span></div>
+            <div id="csv-preview" class="table-scroll"></div>
+          </div>
+          <details class="card tag-details" open>
+            <summary><span>补齐素材标签</span><small id="tag-progress">0 条素材</small></summary>
+            <p class="helper">人群、钩子、卖点和场景会直接影响策略质量。修改内容仅保存在本地。</p>
+            <div id="tag-editor" class="stack tag-editor"></div>
+            <div class="tag-pagination">
+              <button id="tag-prev" type="button" class="secondary">上一页</button>
+              <span id="tag-page">1 / 1</span>
+              <button id="tag-next" type="button" class="secondary">下一页</button>
+            </div>
+          </details>
+          <button id="analyze-button" class="primary" disabled>完成复盘</button>
+          <p id="analysis-error" class="error" role="alert"></p>
+        </section>
 
         <section id="results" hidden>
           <div class="metrics">
@@ -45,27 +133,110 @@
             <article><span>混合 ROI</span><strong id="metric-roi">0</strong></article>
           </div>
           <div class="card">
-            <div class="section-title"><h2>素材分层</h2><span>按消耗中位数与目标 ROI</span></div>
+            <div class="section-title"><h3>素材分层</h3><span>样本量 + 消耗 + ROI</span></div>
             <div id="segments" class="segments"></div>
           </div>
           <div class="card">
-            <div class="section-title"><h2>优先复盘素材</h2><span>最多显示 5 条</span></div>
+            <div class="section-title"><h3>优先复盘素材</h3><span>保留什么 / 改什么</span></div>
             <div id="top-creatives" class="stack"></div>
           </div>
           <div class="card">
-            <div class="section-title"><h2>下一轮测试矩阵</h2><span>每轮只改变一个变量</span></div>
-            <div id="test-matrix" class="stack"></div>
+            <div class="section-title"><h3>有效标签线索</h3><span>按消耗排序</span></div>
+            <div id="tag-insights" class="insight-grid"></div>
           </div>
-          <div class="actions">
-            <button id="export-json" class="secondary">导出 JSON</button>
-            <button id="export-md" class="secondary">导出 Markdown</button>
+          <div class="actions three">
+            <button id="export-analysis-json" class="secondary">JSON</button>
+            <button id="export-analysis-md" class="secondary">Markdown</button>
+            <button class="primary" data-nav="next">生成下一批 →</button>
           </div>
         </section>
       </section>
 
-      <section id="masters" class="view">
-        <div class="card">
-          <div class="section-title"><h2>寻找自有母版</h2><span>所有文件只在本地计算</span></div>
+      <section id="next" class="view">
+        <div class="page-heading">
+          <div><p class="step">STEP 03</p><h2>生成可以直接开拍的任务</h2></div>
+          <span id="plan-state" class="status-dot">未生成</span>
+        </div>
+        <div id="plan-readiness" class="notice">需要先保存商品 Brief，并完成一次素材复盘。</div>
+        <div class="card controls">
+          <label class="input-block">本轮唯一变量
+            <select id="test-variable">
+              <option value="hook">前三秒钩子</option>
+              <option value="sellingPoint">核心卖点</option>
+              <option value="scene">拍摄场景</option>
+              <option value="audience">目标人群</option>
+            </select>
+          </label>
+          <label class="input-block">单条最低测试消耗（元）
+            <input id="min-spend" type="number" value="300" min="1" step="50">
+          </label>
+          <button id="generate-plan" class="primary wide" disabled>生成素材策略与拍摄任务</button>
+          <p id="plan-error" class="error wide" role="alert"></p>
+        </div>
+        <section id="plan-results" hidden>
+          <div class="card plan-summary">
+            <div><span>测试批次</span><strong id="plan-batch">—</strong></div>
+            <div><span>基线素材</span><strong id="plan-baseline">—</strong></div>
+            <p>下面所有内容都可以直接编辑，修改会自动保存在当前浏览器。</p>
+          </div>
+          <div id="plan-list" class="stack plan-list"></div>
+          <div class="actions four">
+            <button id="copy-plan" class="primary">复制全部</button>
+            <button id="export-plan-md" class="secondary">Markdown</button>
+            <button id="export-plan-csv" class="secondary">CSV</button>
+            <button id="export-plan-json" class="secondary">JSON</button>
+          </div>
+          <p id="copy-state" class="success" role="status"></p>
+        </section>
+      </section>
+
+      <section id="library" class="view">
+        <div class="page-heading">
+          <div><p class="step">STEP 04</p><h2>本地素材与自有母版</h2></div>
+          <span class="status-dot good">不上传</span>
+        </div>
+        <div class="card library-status">
+          <h3>当前项目资产</h3>
+          <div class="asset-counts">
+            <div><strong id="asset-brief">0</strong><span>商品 Brief</span></div>
+            <div><strong id="asset-report">0</strong><span>复盘素材</span></div>
+            <div><strong id="asset-plan">0</strong><span>拍摄方案</span></div>
+          </div>
+          <p class="helper">V0.3.1 保存最近一个工作项目；后续版本再增加多项目和版本管理。</p>
+        </div>
+
+        <details class="card update-center" open>
+          <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
+          <div class="version-grid">
+            <article><span>当前版本</span><strong id="update-current-version">检测中</strong></article>
+            <article><span>最新 Release</span><strong id="update-latest-version">尚未检查</strong></article>
+          </div>
+          <div id="update-status" class="notice compact">加载已解压的扩展不会静默自更新。你可以安全检查新版本，再确认是否打开官方下载页。</div>
+          <p id="update-checked-at" class="helper">尚未连接 GitHub 检查版本。</p>
+          <label class="update-opt-in">
+            <input id="auto-update-check" type="checkbox">
+            <span><strong>打开侧边栏时自动检查</strong><small>最多每天一次；仅读取本项目 GitHub Release 版本信息，不下载或执行代码。</small></span>
+          </label>
+          <div class="actions update-actions">
+            <button id="check-extension-update" type="button" class="secondary">检查新版本</button>
+            <button id="open-update-page" type="button" class="primary" disabled>确认并打开下载页</button>
+            <button id="export-update-backup" type="button" class="secondary">导出工作区备份</button>
+            <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
+            <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <details class="rollback-guide">
+            <summary><span>安装失败与回退方法</span></summary>
+            <ol>
+              <li>更新前复制当前扩展目录，并导出上方工作区备份。</li>
+              <li>下载 Release 后先检查版本说明；加载已解压模式需要人工替换原目录文件，再在扩展管理页点击“重新加载”。</li>
+              <li>若新版本无法打开，把备份文件恢复到原目录并再次“重新加载”；浏览器本地数据不会被版本检查修改。</li>
+            </ol>
+          </details>
+        </details>
+
+        <details class="card master-panel" open>
+          <summary><span>寻找商家自有母版</span><small>仅本地指纹匹配</small></summary>
+          <p class="helper">用于从商家拥有版权的原片目录中寻找同源文件，不检测或移除平台水印。</p>
           <label class="file-drop compact" for="platform-files">
             <strong>选择平台素材</strong><small id="platform-count">可多选视频或图片</small>
           </label>
@@ -77,27 +248,19 @@
           <button id="match-button" class="primary" disabled>开始匹配</button>
           <div id="match-progress" class="progress" hidden><span></span></div>
           <p id="match-error" class="error" role="alert"></p>
-        </div>
+        </details>
         <div id="match-results" class="card" hidden>
-          <div class="section-title"><h2>匹配结果</h2><span id="match-summary"></span></div>
+          <div class="section-title"><h3>匹配结果</h3><span id="match-summary"></span></div>
           <div id="match-list" class="stack"></div>
           <button id="export-matches" class="secondary full">导出匹配清单</button>
         </div>
-      </section>
 
-      <section id="about" class="view">
-        <div class="card prose">
-          <h2>边界与隐私</h2>
-          <p>扩展不会上传报表或素材，也不会读取千川账号密码或拦截网络请求。</p>
-          <p>母版匹配仅用于寻找商家自有源文件，不移除、破解、定位或规避平台暗水印。</p>
-          <h3>判断标准</h3>
-          <ul>
-            <li><strong>指纹完全一致：</strong>可以确定是同一文件。</li>
-            <li><strong>名称与大小候选：</strong>需要人工确认。</li>
-            <li><strong>仅名称候选：</strong>只作为查找线索。</li>
-          </ul>
+        <details class="card prose">
+          <summary><span>隐私与产品边界</span></summary>
+          <p>报表、Brief、策略和文件指纹默认只在浏览器本地处理与保存。扩展不读取账号密码，也不拦截千川网络请求。</p>
+          <p>自有母版匹配不移除、破解、定位或规避平台暗水印。需要干净素材时，请回到商家自有原片或已授权工程重新制作。</p>
           <a href="https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent" target="_blank" rel="noreferrer">查看开源仓库</a>
-        </div>
+        </details>
       </section>
     </main>
     <script type="module" src="sidepanel.js"></script>
