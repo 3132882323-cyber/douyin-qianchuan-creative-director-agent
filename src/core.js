@@ -396,7 +396,7 @@ export function generateCreativePlan(inputBrief, analysis, options = {}) {
   });
   return {
     generatedAt: new Date().toISOString(),
-    version: "0.3.1",
+    version: "0.5.0",
     brief,
     sourceSummary: analysis.summary,
     testVariable: variable,
