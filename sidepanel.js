@@ -21,6 +21,28 @@ import {
   shouldAutoCheck,
   validateUpdateSnapshot
 } from "./src/update.js";
+import {
+  createTranscodeManifest,
+  isSupportedVideoFile,
+  transcodeProgress,
+  validateTranscodeResult
+} from "./src/transcode.js";
+import {
+  IMAGE_REPAIR_LIMITS,
+  clearMaskState,
+  commitMaskState,
+  createMaskHistory,
+  currentMaskStrokes,
+  maskSelectionStats,
+  redoMaskState,
+  repairLocalImage,
+  repairOutputName,
+  resolveRepairExport,
+  undoMaskState,
+  validateRepairDimensions,
+  validateRepairFile,
+  validateStaticWebpBytes
+} from "./src/local-image-repair.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["productBrief", "targetRoi", "lastAnalysis", "creativePlan", "updateSettings", "lastUpdateCheck"];
@@ -35,7 +57,20 @@ const state = {
   plan: null,
   updateSettings: { autoCheck: false },
   lastUpdateCheck: null,
-  matchData: null
+  matchData: null,
+  masterFileIndex: new Map(),
+  imageRepair: {
+    file: null,
+    sourceMime: "",
+    sourcePixels: null,
+    resultPixels: null,
+    history: createMaskHistory(),
+    activeStroke: null,
+    tool: "brush",
+    loadSequence: 0
+  },
+  transcodeFiles: [],
+  transcodeManifest: null
 };
 let briefSaveTimer = null;
 let planSaveTimer = null;
@@ -337,13 +372,17 @@ function renderAnalysis(result) {
   $("#results").hidden = false;
 }
 
-function download(name, content, type) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
+function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function download(name, content, type) {
+  downloadBlob(name, new Blob([content], { type }));
 }
 
 $("#export-analysis-json").addEventListener("click", () => state.analysis && download("qianchuan-review.json", JSON.stringify(state.analysis, null, 2), "application/json"));
@@ -663,7 +702,10 @@ function refreshMatchButton() {
   $("#match-button").disabled = !platformInput.files.length || !masterInput.files.length;
 }
 platformInput.addEventListener("change", refreshMatchButton);
-masterInput.addEventListener("change", refreshMatchButton);
+masterInput.addEventListener("change", () => {
+  state.masterFileIndex = new Map([...masterInput.files].map((file) => [file.webkitRelativePath || file.name, file]));
+  refreshMatchButton();
+});
 
 async function digest(file) {
   const buffer = await file.arrayBuffer();
@@ -712,7 +754,11 @@ $("#match-button").addEventListener("click", async () => {
 function renderMatches(data) {
   const labels = { exact_hash: "指纹完全一致", name_and_size: "名称与大小候选", name_candidate: "仅名称候选", no_match: "未找到" };
   const exactCount = data.matches.filter((item) => item.status === "exact_hash").length;
+  const candidateCount = data.matches.filter((item) => item.ownedMasterCandidates.length).length;
   $("#match-summary").textContent = `${exactCount}/${data.matches.length} 个确定匹配`;
+  $("#repair-master-priority").textContent = candidateCount
+    ? `已为 ${candidateCount} 个素材找到自有母版候选。请先人工核对并优先直接使用母版或从原始工程重新导出；只有母版本身仍有普通瑕疵时才使用下方局部修复。`
+    : "尚未找到自有母版候选。请优先补充母版或原始工程；局部修复仅用于已授权图片的小范围普通瑕疵。";
   const list = $("#match-list");
   list.replaceChildren();
   data.matches.forEach((match) => {
@@ -720,12 +766,519 @@ function renderMatches(data) {
     const head = element("div", "item-head");
     head.append(element("strong", "", match.platformAsset), element("span", `badge${match.status === "exact_hash" ? "" : " warn"}`, labels[match.status]));
     card.append(head, element("p", "", match.ownedMasterCandidates.length ? match.ownedMasterCandidates.join("；") : "请补充自有母版或原始工程"));
+    const candidateFiles = match.ownedMasterCandidates.map((path) => state.masterFileIndex.get(path)).filter(Boolean);
+    const candidateVideos = candidateFiles.filter(isSupportedVideoFile);
+    const candidateImages = candidateFiles.filter(isRepairImageCandidate);
+    if (candidateVideos.length) {
+      const addButton = element("button", "secondary full", "将候选自有母版加入转码队列");
+      addButton.type = "button";
+      addButton.addEventListener("click", () => {
+        addTranscodeFiles(candidateVideos);
+        $("#transcode-panel").open = true;
+        $("#transcode-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      card.append(addButton);
+    }
+    if (candidateImages.length) {
+      const inspectButton = element("button", "secondary full", "优先检查候选自有母版图片");
+      inspectButton.type = "button";
+      inspectButton.addEventListener("click", async () => {
+        $("#image-repair-panel").open = true;
+        await loadRepairImage(candidateImages[0], { fromOwnedCandidate: true });
+        $("#image-repair-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      card.append(inspectButton);
+    }
     list.append(card);
   });
   $("#match-results").hidden = false;
 }
 
 $("#export-matches").addEventListener("click", () => state.matchData && download("owned-master-matches.json", JSON.stringify(state.matchData, null, 2), "application/json"));
+
+const repairPreviewCanvas = $("#repair-preview-canvas");
+const repairMaskCanvas = $("#repair-mask-canvas");
+const repairPreviewContext = repairPreviewCanvas.getContext("2d", { willReadFrequently: true });
+const repairMaskContext = repairMaskCanvas.getContext("2d", { willReadFrequently: true });
+
+function renderRepairPreview() {
+  const repair = state.imageRepair;
+  if (!repair.sourcePixels) return;
+  repairPreviewContext.putImageData(repair.sourcePixels, 0, 0);
+  if (repair.resultPixels) {
+    const split = Math.round((Number($("#repair-compare").value) / 100) * repairPreviewCanvas.width);
+    if (split < repairPreviewCanvas.width) {
+      repairPreviewContext.putImageData(repair.resultPixels, 0, 0, split, 0, repairPreviewCanvas.width - split, repairPreviewCanvas.height);
+    }
+    repairPreviewContext.save();
+    repairPreviewContext.fillStyle = "rgba(255,255,255,.9)";
+    repairPreviewContext.fillRect(Math.max(0, split - 1), 0, 2, repairPreviewCanvas.height);
+    repairPreviewContext.restore();
+  }
+  repairMaskCanvas.classList.toggle("mask-hidden", Boolean(repair.resultPixels));
+}
+
+function drawRepairStroke(stroke) {
+  if (!stroke?.points?.length) return;
+  const context = repairMaskContext;
+  context.save();
+  context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  context.strokeStyle = "rgba(255, 35, 35, 1)";
+  context.fillStyle = "rgba(255, 35, 35, 1)";
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = stroke.size;
+  if (stroke.points.length === 1) {
+    context.beginPath();
+    context.arc(stroke.points[0].x, stroke.points[0].y, stroke.size / 2, 0, Math.PI * 2);
+    context.fill();
+  } else {
+    context.beginPath();
+    context.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (const point of stroke.points.slice(1)) context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function renderRepairMask() {
+  repairMaskContext.clearRect(0, 0, repairMaskCanvas.width, repairMaskCanvas.height);
+  currentMaskStrokes(state.imageRepair.history).forEach(drawRepairStroke);
+  drawRepairStroke(state.imageRepair.activeStroke);
+}
+
+function repairMaskBytes() {
+  const { width, height } = repairMaskCanvas;
+  const rgba = repairMaskContext.getImageData(0, 0, width, height).data;
+  const mask = new Uint8ClampedArray(width * height);
+  for (let index = 0; index < mask.length; index += 1) mask[index] = rgba[index * 4 + 3];
+  return mask;
+}
+
+function invalidateRepairResult() {
+  state.imageRepair.resultPixels = null;
+  $("#repair-result").hidden = true;
+  renderRepairPreview();
+}
+
+function updateRepairControls() {
+  const repair = state.imageRepair;
+  const history = repair.history;
+  const mask = repair.sourcePixels ? repairMaskBytes() : new Uint8ClampedArray();
+  const stats = maskSelectionStats(mask);
+  const maskTooLarge = stats.selected > IMAGE_REPAIR_LIMITS.maxSelectedPixels || stats.coverage > IMAGE_REPAIR_LIMITS.maxMaskCoverage;
+  $("#repair-undo").disabled = history.index <= 0;
+  $("#repair-redo").disabled = history.index >= history.states.length - 1;
+  $("#repair-clear-mask").disabled = !stats.selected;
+  $("#run-image-repair").disabled = !repair.sourcePixels || !stats.selected || maskTooLarge || !$("#repair-authorization").checked;
+  $("#repair-mask-status").textContent = maskTooLarge
+    ? `选区 ${stats.selected.toLocaleString("zh-CN")} 像素（${(stats.coverage * 100).toFixed(2)}%）超过局部同步处理上限；请缩小或分区圈选。`
+    : stats.selected
+    ? `人工选区 ${stats.selected.toLocaleString("zh-CN")} 像素（${(stats.coverage * 100).toFixed(2)}%）；仅该范围会参与局部修复。`
+    : "尚未绘制选区。只能修改你手动画出的 Mask 范围。";
+}
+
+function resetRepairEdits() {
+  state.imageRepair.history = createMaskHistory();
+  state.imageRepair.activeStroke = null;
+  state.imageRepair.resultPixels = null;
+  renderRepairMask();
+  renderRepairPreview();
+  $("#repair-result").hidden = true;
+  $("#repair-error").textContent = "";
+  updateRepairControls();
+}
+
+function isRepairImageCandidate(file) {
+  try {
+    validateRepairFile(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function loadRepairImage(file, { fromOwnedCandidate = false } = {}) {
+  if (!file) return false;
+  const loadSequence = state.imageRepair.loadSequence + 1;
+  state.imageRepair.loadSequence = loadSequence;
+  $("#repair-error").textContent = "";
+  $("#repair-workspace").hidden = true;
+  try {
+    const fileInfo = validateRepairFile(file);
+    if (fileInfo.mime === "image/webp") validateStaticWebpBytes(await file.arrayBuffer());
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (loadSequence !== state.imageRepair.loadSequence) return false;
+      const dimensions = validateRepairDimensions(bitmap.width, bitmap.height);
+      repairPreviewCanvas.width = dimensions.width;
+      repairPreviewCanvas.height = dimensions.height;
+      repairMaskCanvas.width = dimensions.width;
+      repairMaskCanvas.height = dimensions.height;
+      repairPreviewContext.clearRect(0, 0, dimensions.width, dimensions.height);
+      repairPreviewContext.drawImage(bitmap, 0, 0);
+      state.imageRepair.file = file;
+      state.imageRepair.sourceMime = fileInfo.mime;
+      state.imageRepair.sourcePixels = repairPreviewContext.getImageData(0, 0, dimensions.width, dimensions.height);
+      $("#repair-file-label").textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      $("#repair-image-size").textContent = `${dimensions.width} × ${dimensions.height} · ${dimensions.pixels.toLocaleString("zh-CN")} 像素`;
+      $("#repair-memory-estimate").textContent = `预计峰值内存 ${(dimensions.estimatedBytes / 1024 / 1024).toFixed(0)} MB / ${IMAGE_REPAIR_LIMITS.maxEstimatedBytes / 1024 / 1024} MB`;
+      $("#repair-authorization").checked = false;
+      $("#repair-workspace").hidden = false;
+      if (fromOwnedCandidate) {
+        $("#repair-master-priority").textContent = `已载入候选自有母版“${file.name}”供人工检查。请优先直接使用干净母版或从原始工程重新导出；只有母版本身仍有普通瑕疵时，才确认授权并手动画 Mask 修复。`;
+      }
+      resetRepairEdits();
+      return true;
+    } finally {
+      bitmap.close();
+    }
+  } catch (error) {
+    if (loadSequence !== state.imageRepair.loadSequence) return false;
+    state.imageRepair.file = null;
+    state.imageRepair.sourceMime = "";
+    state.imageRepair.sourcePixels = null;
+    state.imageRepair.resultPixels = null;
+    state.imageRepair.history = createMaskHistory();
+    $("#repair-workspace").hidden = true;
+    $("#repair-error").textContent = error instanceof RangeError
+      ? "浏览器内存不足，已停止读取；请从自有工程缩小图片后再试。"
+      : error.message || "图片解码失败，请确认文件未损坏且格式受支持";
+    $("#repair-file-label").textContent = "支持 PNG、JPEG、静态 WebP；原图不会被覆盖";
+    updateRepairControls();
+    return false;
+  }
+}
+
+$("#repair-image-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (file) await loadRepairImage(file);
+});
+
+function repairPointFromEvent(event) {
+  const bounds = repairMaskCanvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(repairMaskCanvas.width, ((event.clientX - bounds.left) / bounds.width) * repairMaskCanvas.width)),
+    y: Math.max(0, Math.min(repairMaskCanvas.height, ((event.clientY - bounds.top) / bounds.height) * repairMaskCanvas.height)),
+    scale: Math.max(repairMaskCanvas.width / bounds.width, repairMaskCanvas.height / bounds.height)
+  };
+}
+
+repairMaskCanvas.addEventListener("pointerdown", (event) => {
+  if (!state.imageRepair.sourcePixels || (event.pointerType === "mouse" && event.button !== 0)) return;
+  event.preventDefault();
+  invalidateRepairResult();
+  const point = repairPointFromEvent(event);
+  state.imageRepair.activeStroke = {
+    tool: state.imageRepair.tool,
+    size: Number($("#repair-brush-size").value) * point.scale,
+    pointerId: event.pointerId,
+    points: [{ x: point.x, y: point.y }]
+  };
+  repairMaskCanvas.setPointerCapture(event.pointerId);
+  renderRepairMask();
+});
+
+repairMaskCanvas.addEventListener("pointermove", (event) => {
+  const stroke = state.imageRepair.activeStroke;
+  if (!stroke || stroke.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  const point = repairPointFromEvent(event);
+  const previous = stroke.points.at(-1);
+  if (Math.hypot(point.x - previous.x, point.y - previous.y) < Math.max(1, stroke.size / 12)) return;
+  stroke.points.push({ x: point.x, y: point.y });
+  renderRepairMask();
+});
+
+function finishRepairStroke(event) {
+  const stroke = state.imageRepair.activeStroke;
+  if (!stroke || stroke.pointerId !== event.pointerId) return;
+  const committed = { tool: stroke.tool, size: stroke.size, points: stroke.points };
+  state.imageRepair.history = commitMaskState(state.imageRepair.history, [...currentMaskStrokes(state.imageRepair.history), committed]);
+  state.imageRepair.activeStroke = null;
+  if (repairMaskCanvas.hasPointerCapture(event.pointerId)) repairMaskCanvas.releasePointerCapture(event.pointerId);
+  renderRepairMask();
+  updateRepairControls();
+}
+repairMaskCanvas.addEventListener("pointerup", finishRepairStroke);
+repairMaskCanvas.addEventListener("pointercancel", finishRepairStroke);
+
+function setRepairTool(tool) {
+  state.imageRepair.tool = tool;
+  for (const [id, value] of [["repair-brush-tool", "brush"], ["repair-eraser-tool", "eraser"]]) {
+    const active = value === tool;
+    $(`#${id}`).classList.toggle("active", active);
+    $(`#${id}`).setAttribute("aria-pressed", String(active));
+  }
+}
+$("#repair-brush-tool").addEventListener("click", () => setRepairTool("brush"));
+$("#repair-eraser-tool").addEventListener("click", () => setRepairTool("eraser"));
+$("#repair-brush-size").addEventListener("input", (event) => { $("#repair-brush-size-label").textContent = event.target.value; });
+$("#repair-feather").addEventListener("input", (event) => { $("#repair-feather-label").textContent = event.target.value; invalidateRepairResult(); });
+$("#repair-authorization").addEventListener("change", updateRepairControls);
+$("#repair-undo").addEventListener("click", () => {
+  state.imageRepair.history = undoMaskState(state.imageRepair.history);
+  invalidateRepairResult();
+  renderRepairMask();
+  updateRepairControls();
+});
+$("#repair-redo").addEventListener("click", () => {
+  state.imageRepair.history = redoMaskState(state.imageRepair.history);
+  invalidateRepairResult();
+  renderRepairMask();
+  updateRepairControls();
+});
+$("#repair-clear-mask").addEventListener("click", () => {
+  state.imageRepair.history = clearMaskState(state.imageRepair.history);
+  invalidateRepairResult();
+  renderRepairMask();
+  updateRepairControls();
+});
+
+$("#run-image-repair").addEventListener("click", async () => {
+  $("#repair-error").textContent = "正在本地生成预览…";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const repaired = repairLocalImage({
+      authorizationConfirmed: $("#repair-authorization").checked,
+      rgba: state.imageRepair.sourcePixels.data,
+      mask: repairMaskBytes(),
+      width: repairPreviewCanvas.width,
+      height: repairPreviewCanvas.height,
+      featherRadius: $("#repair-feather").value,
+      searchRadius: 48
+    });
+    state.imageRepair.resultPixels = new ImageData(repaired.data, repaired.width, repaired.height);
+    $("#repair-result").hidden = false;
+    $("#repair-error").textContent = `预览完成：修改 ${repaired.changedPixels.toLocaleString("zh-CN")} 个 Mask 内像素；透明通道保持不变。`;
+    renderRepairPreview();
+  } catch (error) {
+    state.imageRepair.resultPixels = null;
+    $("#repair-result").hidden = true;
+    $("#repair-error").textContent = error.message || "局部修复失败";
+    renderRepairPreview();
+  }
+});
+
+$("#repair-compare").addEventListener("input", (event) => {
+  $("#repair-compare-label").textContent = `${event.target.value}%`;
+  renderRepairPreview();
+});
+
+function syncRepairExportControls() {
+  const exportInfo = resolveRepairExport({
+    requestedFormat: $("#repair-export-format").value,
+    sourceMime: state.imageRepair.sourceMime,
+    jpegQuality: $("#repair-jpeg-quality").value
+  });
+  $("#repair-jpeg-quality").disabled = exportInfo.mime !== "image/jpeg";
+}
+$("#repair-export-format").addEventListener("change", syncRepairExportControls);
+$("#repair-jpeg-quality").addEventListener("input", (event) => { $("#repair-jpeg-quality-label").textContent = Number(event.target.value).toFixed(2); });
+$("#reset-image-repair").addEventListener("click", resetRepairEdits);
+$("#export-repaired-image").addEventListener("click", () => {
+  if (!state.imageRepair.resultPixels || !state.imageRepair.file) return;
+  try {
+    const exportInfo = resolveRepairExport({
+      requestedFormat: $("#repair-export-format").value,
+      sourceMime: state.imageRepair.sourceMime,
+      jpegQuality: $("#repair-jpeg-quality").value
+    });
+    const pixelCanvas = document.createElement("canvas");
+    pixelCanvas.width = repairPreviewCanvas.width;
+    pixelCanvas.height = repairPreviewCanvas.height;
+    pixelCanvas.getContext("2d").putImageData(state.imageRepair.resultPixels, 0, 0);
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = pixelCanvas.width;
+    exportCanvas.height = pixelCanvas.height;
+    const exportContext = exportCanvas.getContext("2d");
+    if (exportInfo.mime === "image/jpeg") {
+      exportContext.fillStyle = "#fff";
+      exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+    }
+    exportContext.drawImage(pixelCanvas, 0, 0);
+    exportCanvas.toBlob((blob) => {
+      if (!blob) {
+        $("#repair-error").textContent = "浏览器无法编码该图片";
+        return;
+      }
+      downloadBlob(repairOutputName(state.imageRepair.file.name, exportInfo.extension), blob);
+      $("#repair-error").textContent = exportInfo.preservesAlpha ? "已导出 PNG，新文件保留透明通道。" : "已导出 JPEG；透明区域已安全铺为白色。";
+    }, exportInfo.mime, exportInfo.quality);
+  } catch (error) {
+    $("#repair-error").textContent = error.message || "图片导出失败";
+  }
+});
+syncRepairExportControls();
+
+const transcodeInput = $("#transcode-files");
+
+function transcodeFileIdentity(file) {
+  return `${file.webkitRelativePath || file.name}|${file.size}|${file.lastModified}`;
+}
+
+function refreshTranscodeSelection() {
+  const count = state.transcodeFiles.length;
+  $("#transcode-file-count").textContent = count ? `已加入 ${count} 个自有/授权视频` : "支持多选视频；也可从上方母版匹配结果加入";
+}
+
+function markTranscodeDirty() {
+  if (!state.transcodeManifest) return;
+  state.transcodeManifest = null;
+  $("#transcode-queue").hidden = true;
+  $("#transcode-error").textContent = "文件或参数已改变，请重新生成转码任务。";
+}
+
+function addTranscodeFiles(files) {
+  const incoming = [...files];
+  const supported = incoming.filter(isSupportedVideoFile);
+  const known = new Set(state.transcodeFiles.map(transcodeFileIdentity));
+  for (const file of supported) {
+    const identity = transcodeFileIdentity(file);
+    if (!known.has(identity)) {
+      known.add(identity);
+      state.transcodeFiles.push(file);
+    }
+  }
+  if (!supported.length && incoming.length) $("#transcode-error").textContent = "所选文件中没有可识别的视频原片。";
+  else $("#transcode-error").textContent = supported.length < incoming.length ? "已忽略非视频文件。" : "";
+  markTranscodeDirty();
+  refreshTranscodeSelection();
+}
+
+transcodeInput.addEventListener("change", (event) => {
+  addTranscodeFiles(event.target.files);
+  event.target.value = "";
+});
+
+const transcodeSettingIds = [
+  "transcode-authorization", "transcode-source-root", "transcode-output-root", "transcode-preset",
+  "transcode-resolution", "transcode-frame-rate", "transcode-video-bitrate", "transcode-audio-bitrate",
+  "transcode-sample-rate", "transcode-output-suffix", "transcode-ffmpeg-path"
+];
+transcodeSettingIds.forEach((id) => $(`#${id}`).addEventListener("input", markTranscodeDirty));
+
+function syncTranscodePreset() {
+  const preset = $("#transcode-preset").value;
+  const defaults = {
+    balanced: { audio: "192" },
+    high_quality: { audio: "256" },
+    compact: { audio: "128" },
+    custom_bitrate: { audio: "192" }
+  };
+  $("#transcode-audio-bitrate").value = defaults[preset].audio;
+  $("#transcode-video-bitrate").disabled = preset !== "custom_bitrate";
+  markTranscodeDirty();
+}
+$("#transcode-preset").addEventListener("change", syncTranscodePreset);
+syncTranscodePreset();
+
+function readTranscodeSettings() {
+  return {
+    authorizationConfirmed: $("#transcode-authorization").checked,
+    sourceRoot: $("#transcode-source-root").value,
+    outputRoot: $("#transcode-output-root").value,
+    preset: $("#transcode-preset").value,
+    resolution: $("#transcode-resolution").value,
+    frameRate: $("#transcode-frame-rate").value,
+    videoBitrateKbps: $("#transcode-video-bitrate").value,
+    audioBitrateKbps: $("#transcode-audio-bitrate").value,
+    sampleRate: $("#transcode-sample-rate").value,
+    outputSuffix: $("#transcode-output-suffix").value,
+    ffmpegExecutable: $("#transcode-ffmpeg-path").value
+  };
+}
+
+function renderTranscodeQueue() {
+  const manifest = state.transcodeManifest;
+  if (!manifest) {
+    $("#transcode-queue").hidden = true;
+    return;
+  }
+  const progress = transcodeProgress(manifest.tasks);
+  $("#transcode-progress-label").textContent = `${progress.finished}/${progress.total} 已结束 · ${progress.completed} 成功 · ${progress.failed} 失败`;
+  $("#transcode-progress-bar").style.width = `${progress.percent}%`;
+  const list = $("#transcode-task-list");
+  list.replaceChildren();
+  const labels = { pending: "待执行", completed: "已完成", failed: "失败", skipped: "已跳过" };
+  manifest.tasks.forEach((task) => {
+    const card = element("article", "item transcode-task");
+    const head = element("div", "item-head");
+    head.append(element("strong", "", task.source.name), element("span", `badge ${task.status}`, labels[task.status] || "待执行"));
+    card.append(head);
+    card.append(element("p", "task-path", `输出：${task.outputPath}`));
+    if (task.status === "failed") card.append(element("p", "error", task.failureReason || `FFmpeg 执行失败${task.exitCode === null ? "" : `（退出码 ${task.exitCode}）`}`));
+    const commandDetails = element("details", "task-command");
+    const commandSummary = element("summary");
+    commandSummary.append(element("span", "", "查看本地命令"));
+    const command = element("pre", "", task.powerShellCommand);
+    commandDetails.append(commandSummary, command);
+    card.append(commandDetails);
+    list.append(card);
+  });
+  $("#transcode-queue").hidden = false;
+}
+
+$("#build-transcode-tasks").addEventListener("click", () => {
+  $("#transcode-error").textContent = "";
+  try {
+    state.transcodeManifest = createTranscodeManifest(state.transcodeFiles, readTranscodeSettings(), { creatorVersion: CURRENT_VERSION });
+    renderTranscodeQueue();
+  } catch (error) {
+    state.transcodeManifest = null;
+    renderTranscodeQueue();
+    $("#transcode-error").textContent = error.message || "无法生成转码任务";
+  }
+});
+
+$("#copy-transcode-commands").addEventListener("click", async () => {
+  if (!state.transcodeManifest) return;
+  try {
+    await navigator.clipboard.writeText(state.transcodeManifest.tasks.map((task) => task.powerShellCommand).join("\r\n\r\n"));
+    $("#transcode-error").textContent = "全部本地命令已复制；执行前请再次核对输入与输出路径。";
+  } catch {
+    $("#transcode-error").textContent = "复制失败，请导出任务清单并使用本地执行器。";
+  }
+});
+
+$("#export-transcode-manifest").addEventListener("click", () => {
+  if (!state.transcodeManifest) return;
+  download("qianchuan-transcode-tasks.json", JSON.stringify(state.transcodeManifest, null, 2), "application/json;charset=utf-8");
+  $("#transcode-error").textContent = "任务清单已导出；它包含你填写的本地输入与输出路径，请只在可信设备上保存。";
+});
+
+$("#download-transcode-worker").addEventListener("click", async () => {
+  try {
+    const response = await fetch(chrome.runtime.getURL("tools/transcode-worker.ps1"), { cache: "no-store" });
+    if (!response.ok) throw new Error("执行器文件无法读取");
+    download("transcode-worker.ps1", await response.text(), "text/plain;charset=utf-8");
+    $("#transcode-error").textContent = "本地执行器已下载。运行前可以打开检查其源码。";
+  } catch (error) {
+    $("#transcode-error").textContent = `${error.message || "执行器下载失败"}；也可以从开源仓库 tools 目录获取。`;
+  }
+});
+
+$("#import-transcode-result").addEventListener("click", () => $("#transcode-result-file").click());
+$("#transcode-result-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file || !state.transcodeManifest) return;
+  if (file.size > 2 * 1024 * 1024) {
+    $("#transcode-error").textContent = "执行结果超过 2 MB，已停止导入。";
+    return;
+  }
+  try {
+    const results = validateTranscodeResult(JSON.parse(await file.text()), state.transcodeManifest);
+    const byId = new Map(results.map((result) => [result.id, result]));
+    state.transcodeManifest.tasks = state.transcodeManifest.tasks.map((task) => ({ ...task, ...(byId.get(task.id) || {}) }));
+    renderTranscodeQueue();
+    const progress = transcodeProgress(state.transcodeManifest.tasks);
+    $("#transcode-error").textContent = progress.failed ? `已导入执行结果：${progress.completed} 成功，${progress.failed} 失败。失败原因已显示在任务下方。` : `已导入执行结果：${progress.completed} 个任务完成。`;
+  } catch (error) {
+    $("#transcode-error").textContent = error.message || "执行结果无法导入";
+  }
+});
 
 async function initialize() {
   try {

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>素材分析服务台 · 抖音千川素材编导</title>
+    <link rel="stylesheet" href="workbench.css">
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="sidepanel.html"><span>千</span><strong>素材分析服务台</strong></a>
+      <nav aria-label="服务台步骤">
+        <a href="#source"><b>01</b> 本地来源</a>
+        <a href="#processing"><b>02</b> 本地处理</a>
+        <a href="#transcription"><b>03</b> 本地转写</a>
+        <a href="#structure"><b>04</b> 文案结构</a>
+      </nav>
+      <div class="local-note"><strong>LOCAL ONLY</strong><span>视频与文本默认不离开设备</span></div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <div>
+          <p class="eyebrow">抖音千川素材编导 Agent · V0.5.0</p>
+          <h1>素材分析服务台</h1>
+          <p>把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
+        </div>
+        <a class="ghost-button" href="sidepanel.html">返回侧边栏工作区</a>
+      </header>
+
+      <div class="boundary" role="note">
+        <strong>先找自有母版</strong>
+        <span>优先使用商家自有母版或原始工程。服务台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
+      </div>
+
+      <section id="source" class="panel">
+        <div class="section-head"><div><span>STEP 01</span><h2>选择本地自有素材</h2></div><em id="source-status">未选择</em></div>
+        <div class="grid two">
+          <label class="file-card" for="material-video-files">
+            <strong>选择本地视频</strong>
+            <span id="material-file-label">支持多选 MP4、MOV、MKV、WebM 等视频</span>
+          </label>
+          <input id="material-video-files" type="file" accept="video/*,.mkv,.m4v,.mts,.m2ts" multiple hidden>
+          <div class="field-stack">
+            <label>自有原片根目录<input id="material-source-root" type="text" placeholder="例如 D:\品牌素材\自有原片"></label>
+            <small>浏览器不会暴露绝对路径；任务会把此目录与所选文件名组合。</small>
+          </div>
+          <div class="field-stack">
+            <label>处理输出目录<input id="material-output-root" type="text" placeholder="例如 D:\品牌素材\分析输出"></label>
+            <small>标准化 MP4、16 kHz 单声道 WAV 与本地转写文本放在此处。</small>
+          </div>
+          <div class="field-stack">
+            <label>FFmpeg 路径<input id="material-ffmpeg-path" type="text" value="ffmpeg" placeholder="ffmpeg 或完整的 ffmpeg.exe 路径"></label>
+            <small>只允许 ffmpeg / ffmpeg.exe，不接受任意可执行命令。</small>
+          </div>
+        </div>
+        <label class="auth-check">
+          <input id="material-authorization" type="checkbox">
+          <span><strong>我确认所选视频为商家自有或已取得明确处理授权</strong><small>未确认时不能生成任何处理任务。</small></span>
+        </label>
+        <div class="source-note">
+          <label>抖音原页链接（可选，仅作来源备注）<input id="douyin-source-note" type="url" placeholder="https://www.douyin.com/video/..."></label>
+          <button id="open-source-note" type="button" class="secondary">只打开原页</button>
+        </div>
+        <p class="help">这个字段不会发起解析请求，也不会下载链接中的媒体；只有点击“只打开原页”时，浏览器才会打开你填写的地址。</p>
+        <p id="source-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="processing" class="panel">
+        <div class="section-head"><div><span>STEP 02</span><h2>生成本地处理任务</h2></div><em id="processing-status">尚未生成</em></div>
+        <div class="workflow-cards">
+          <article><b>1</b><strong>标准化视频</strong><span>H.264 / AAC、保持比例、保留元数据与章节、不覆盖原片</span></article>
+          <article><b>2</b><strong>提取分析音频</strong><span>PCM 16-bit、16 kHz、单声道 WAV，供本地转写使用</span></article>
+          <article><b>3</b><strong>导入执行结果</strong><span>逐项显示成功或失败原因，所有处理由本机 FFmpeg 完成</span></article>
+        </div>
+        <button id="create-material-tasks" type="button" class="primary wide">一键生成“标准化 + 音频提取”本地任务</button>
+        <p id="processing-error" class="error" role="alert"></p>
+        <section id="processing-queue" hidden>
+          <div class="progress-head"><strong id="processing-progress-label">0 / 0</strong><span>任务进度</span></div>
+          <div class="progress"><span id="processing-progress-bar"></span></div>
+          <div id="processing-task-list" class="task-list"></div>
+          <div class="button-row">
+            <button id="copy-material-commands" type="button" class="secondary">复制受限命令</button>
+            <button id="export-material-manifest" type="button" class="primary">导出任务清单</button>
+            <button id="download-material-worker" type="button" class="secondary">下载开源执行器</button>
+            <button id="import-material-result" type="button" class="secondary">导入执行结果</button>
+            <input id="material-result-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <details class="instructions">
+            <summary>怎样在本机执行？</summary>
+            <ol>
+              <li>将导出的清单与 <code>transcode-worker.ps1</code> 放在同一文件夹。</li>
+              <li>打开 PowerShell，运行 <code>powershell -NoProfile -File .\transcode-worker.ps1 -ManifestPath .\qianchuan-material-analysis-tasks.json</code>。</li>
+              <li>执行器只接受固定 FFmpeg 参数白名单，并生成 results.json；回到此页导入结果。</li>
+            </ol>
+          </details>
+        </section>
+      </section>
+
+      <section id="transcription" class="panel">
+        <div class="section-head"><div><span>STEP 03</span><h2>获取本地转写文本</h2></div><em id="transcript-status">等待文本</em></div>
+        <div class="grid two">
+          <label>转写方式
+            <select id="transcription-mode">
+              <option value="text_import">导入本地文本（无需引擎）</option>
+              <option value="whisper_cpp">本机 whisper.cpp</option>
+            </select>
+          </label>
+          <label>语言
+            <select id="transcription-language"><option value="zh">中文</option><option value="auto">自动识别</option></select>
+          </label>
+        </div>
+        <div id="whisper-config" class="engine-config" hidden>
+          <label>whisper-cli.exe 绝对路径<input id="whisper-executable" type="text" placeholder="例如 C:\Tools\whisper.cpp\whisper-cli.exe"></label>
+          <label>本地 .bin 模型绝对路径<input id="whisper-model" type="text" placeholder="例如 C:\Models\ggml-base.bin"></label>
+          <button id="create-transcription-plan" type="button" class="secondary">生成固定参数的本地转写任务</button>
+          <div id="transcription-plan-actions" class="button-row compact" hidden>
+            <button id="copy-transcription-commands" type="button" class="secondary">复制本地转写命令</button>
+            <button id="export-transcription-plan" type="button" class="secondary">导出转写清单</button>
+          </div>
+          <p class="help">仅允许 <code>whisper-cli(.exe)</code>，参数由扩展固定生成；路径字段不会被当作任意 shell 命令执行。</p>
+        </div>
+        <div class="transcript-import">
+          <label class="file-card compact" for="transcript-file"><strong>导入本地转写文本</strong><span>TXT、MD、SRT、VTT，最大 4 MB</span></label>
+          <input id="transcript-file" type="file" accept=".txt,.md,.srt,.vtt,text/plain,text/markdown" hidden>
+          <span>或直接粘贴</span>
+        </div>
+        <label>转写正文<textarea id="transcript-text" rows="12" maxlength="200000" placeholder="在此粘贴已由本机引擎生成的文案，或导入 TXT / SRT / VTT…"></textarea></label>
+        <p id="transcription-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="structure" class="panel">
+        <div class="section-head"><div><span>STEP 04</span><h2>规则型文案结构分析</h2></div><em id="structure-status">尚未分析</em></div>
+        <p class="help">本模块只用浏览器内的确定性关键词规则标注钩子、人群、痛点、卖点、证据、场景和行动引导，不上传文本，也不预测投放效果。</p>
+        <button id="analyze-transcript" type="button" class="primary wide">分析当前转写文本</button>
+        <p id="structure-error" class="error" role="alert"></p>
+        <section id="structure-result" hidden>
+          <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
+          <div id="coverage-grid" class="coverage-grid"></div>
+          <div class="result-head"><h3>分段标注</h3><div><button id="export-structure-json" class="secondary">JSON</button><button id="export-structure-md" class="secondary">Markdown</button></div></div>
+          <div id="structure-segments" class="segment-list"></div>
+          <div id="structure-recommendations" class="recommendations"></div>
+          <p id="structure-disclaimer" class="help"></p>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="workbench.js"></script>
+  </body>
+</html>
