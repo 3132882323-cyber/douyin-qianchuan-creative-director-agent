@@ -2,11 +2,14 @@
   "manifest_version": 3,
   "name": "抖音千川素材编导 Agent",
   "short_name": "千川编导",
-  "version": "0.5.0",
-  "description": "专为抖音千川素材编导打造的开源本地扩展：侧边复盘、授权图片局部修复，以及自有视频的本地处理与文案结构分析。",
+  "version": "1.0.0",
+  "description": "面向抖音千川素材编导的开源本地工作台：历史素材复盘、下一版任务、授权图片局部修复，以及自有视频处理与文案结构分析。",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "storage"],
   "optional_host_permissions": ["https://api.github.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
   "background": {
     "service_worker": "service-worker.js"
   },

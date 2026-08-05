@@ -105,6 +105,18 @@ function clonePoint(point) {
 }
 
 function cloneStroke(stroke) {
+  if (stroke?.shape === "rect") {
+    return {
+      tool: stroke.tool === "eraser" ? "eraser" : "brush",
+      shape: "rect",
+      x: Number(stroke.x),
+      y: Number(stroke.y),
+      width: Number(stroke.width),
+      height: Number(stroke.height),
+      size: 0,
+      points: []
+    };
+  }
   return {
     tool: stroke.tool === "eraser" ? "eraser" : "brush",
     size: Number(stroke.size),
