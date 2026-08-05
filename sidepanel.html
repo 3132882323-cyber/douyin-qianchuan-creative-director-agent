@@ -10,65 +10,94 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V0.5.0</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.0</p>
         <h1>抖音千川素材编导</h1>
-        <p>从历史复盘到下一批可拍摄任务</p>
+        <p>从历史复盘到下一版可拍摄任务</p>
       </div>
       <span class="local-pill" title="数据仅保存在当前浏览器">本地</span>
     </header>
 
-    <nav class="tabs" aria-label="主工作区">
-      <button class="tab active" data-view="brief"><span>01</span>商品 Brief</button>
-      <button class="tab" data-view="review"><span>02</span>素材复盘</button>
-      <button class="tab" data-view="next"><span>03</span>下一批拍什么</button>
-      <button class="tab" data-view="library"><span>04</span>素材库</button>
+    <nav class="tabs" aria-label="主工作区" role="tablist">
+      <button id="tab-task" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="task" data-view="task"><span>01</span>创作任务</button>
+      <button id="tab-review" class="tab" type="button" role="tab" aria-selected="false" aria-controls="review" data-view="review"><span>02</span>历史素材复盘</button>
+      <button id="tab-next" class="tab" type="button" role="tab" aria-selected="false" aria-controls="next" data-view="next"><span>03</span>下一版任务</button>
+      <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library" data-view="library"><span>04</span>本地素材与工具</button>
     </nav>
 
+    <aside class="workflow-guide" aria-label="当前工作进度">
+      <div class="workflow-guide-head"><strong id="workflow-progress-label">核心流程 0 / 3</strong><span id="workflow-task-state">创作任务可跳过</span></div>
+      <div id="workflow-progress" class="workflow-meter" role="progressbar" aria-label="核心工作流进度" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><span id="workflow-progress-bar"></span></div>
+      <p id="workflow-next-step" role="status" aria-live="polite">下一步：导入历史素材并完成复盘。</p>
+      <button id="workflow-next-action" type="button" class="secondary">去导入历史素材</button>
+    </aside>
+
     <main>
-      <section id="brief" class="view active">
+      <section id="workspace-recovery-notice" class="notice error recovery-notice" role="alert" aria-labelledby="workspace-recovery-title" tabindex="-1" hidden>
+        <strong id="workspace-recovery-title">本地工作区已安全降级</strong>
+        <p id="workspace-recovery-message">部分本地记录无法读取；已隔离异常数据并继续打开默认工作区。</p>
+        <div class="actions">
+          <button id="retry-workspace-load" type="button" class="secondary">重新读取</button>
+          <button id="clear-corrupt-storage" type="button" class="secondary" hidden>确认清理损坏记录</button>
+        </div>
+      </section>
+
+      <section id="onboarding-guide" class="card onboarding-guide" aria-labelledby="onboarding-title" tabindex="-1" hidden>
+        <div class="section-title">
+          <div><p class="step">首次使用</p><h2 id="onboarding-title">三步完成第一轮素材任务</h2></div>
+          <span>创作任务可跳过</span>
+        </div>
+        <ol class="onboarding-steps">
+          <li><b>1</b><span><strong>导入历史报表</strong><small>选择本地 CSV / TSV，确认字段映射并补充素材标签。</small></span></li>
+          <li><b>2</b><span><strong>完成素材复盘</strong><small>查看分层、优先素材和标签洞察；原始报表不会上传。</small></span></li>
+          <li><b>3</b><span><strong>生成并导出任务</strong><small>选择单一测试变量，检查下一版任务后复制或导出。</small></span></li>
+        </ol>
+        <p class="onboarding-privacy"><strong>本地隐私：</strong>报表、任务和摘要默认只在当前浏览器处理与保存；版本检查仅在你授权后读取本项目 GitHub Release 元数据。</p>
+        <div class="actions">
+          <button id="onboarding-start" type="button" class="primary">开始导入历史素材</button>
+          <button id="dismiss-onboarding" type="button" class="secondary">暂时收起</button>
+        </div>
+      </section>
+
+      <section id="task" class="view active" role="tabpanel" aria-labelledby="tab-task">
         <div class="page-heading">
-          <div><p class="step">STEP 01</p><h2>先把商品事实说清楚</h2></div>
-          <span id="brief-save-state" class="status-dot">未保存</span>
+          <div><p class="step">STEP 01 · 可选</p><h2>创建本次素材任务</h2></div>
+          <span id="task-save-state" class="status-dot" role="status" aria-live="polite">未保存</span>
         </div>
         <div class="card">
           <label class="input-block">快速模板
-            <select id="brief-template">
-              <option value="custom">空白模板</option>
-              <option value="apparel">服饰</option>
-              <option value="beauty">美妆</option>
-              <option value="food">食品</option>
-              <option value="cleaning">家清</option>
+            <select id="task-template">
+              <option value="custom">空白任务</option>
+              <option value="performance">效果验证</option>
+              <option value="scenario">场景共鸣</option>
+              <option value="story">人物故事</option>
             </select>
           </label>
           <p class="helper">模板只补充空白字段，不会覆盖已经填写的内容。</p>
         </div>
-        <form id="brief-form" class="card form-grid">
-          <label class="input-block required">商品名称
-            <input name="productName" type="text" placeholder="例如：夏季凉感防晒衣" required>
+        <form id="creative-task-form" class="card form-grid">
+          <label class="input-block wide">素材主题（可选）
+            <input name="subject" type="text" placeholder="例如：通勤场景的真实体验">
           </label>
-          <label class="input-block">商品类目
-            <input name="category" type="text" placeholder="例如：女装 / 防晒服">
+          <label class="input-block wide">目标受众
+            <textarea name="targetAudience" rows="2" placeholder="谁在什么情况下需要看到这条素材？"></textarea>
           </label>
-          <label class="input-block wide required">核心人群
-            <textarea name="targetAudience" rows="2" placeholder="谁在什么情况下最需要它？"></textarea>
+          <label class="input-block wide">本次创作目标
+            <textarea name="creativeGoal" rows="2" placeholder="希望这条素材让受众理解、相信或采取什么行动？"></textarea>
           </label>
-          <label class="input-block wide required">用户痛点
-            <textarea name="painPoints" rows="3" placeholder="一行一个，或用逗号分隔"></textarea>
+          <label class="input-block wide">受众问题
+            <textarea name="audienceProblems" rows="3" placeholder="一行一个，或用逗号分隔"></textarea>
           </label>
-          <label class="input-block wide required">核心卖点
-            <textarea name="sellingPoints" rows="3" placeholder="写可拍出来、可验证的利益点"></textarea>
+          <label class="input-block wide">核心主张
+            <textarea name="coreClaim" rows="3" placeholder="写可拍出来、可验证的一句话主张"></textarea>
           </label>
-          <label class="input-block wide">信任证据
-            <textarea name="evidence" rows="3" placeholder="检测报告、材质细节、实测、买家反馈等"></textarea>
+          <label class="input-block wide">可用证据
+            <textarea name="evidence" rows="3" placeholder="实测、细节、过程记录、授权反馈等"></textarea>
           </label>
-          <label class="input-block wide">价格与促销
-            <textarea name="promotion" rows="2" placeholder="到手价、赠品、活动时间；以商品页事实为准"></textarea>
+          <label class="input-block wide">拍摄条件与限制
+            <textarea name="shootingConstraints" rows="3" placeholder="演员、场地、道具、机位和必须拍到的画面"></textarea>
           </label>
-          <label class="input-block wide">拍摄条件
-            <textarea name="shootingConditions" rows="3" placeholder="演员、场地、道具、机位和必须拍到的画面"></textarea>
-          </label>
-          <label class="input-block wide danger-label">禁用表达
-            <textarea name="forbiddenExpressions" rows="2" placeholder="品牌禁词、无法证明的功效、绝对化用语"></textarea>
+          <label class="input-block wide danger-label">合规与风险备注
+            <textarea name="riskNotes" rows="2" placeholder="无法证明的表述、授权限制和发布前核验项"></textarea>
           </label>
           <label class="input-block">目标时长
             <select name="duration">
@@ -78,23 +107,33 @@
             </select>
           </label>
           <div class="form-actions wide">
-            <button id="save-brief" type="submit" class="primary">保存商品 Brief</button>
-            <button type="button" class="secondary" data-nav="review">继续素材复盘 →</button>
+            <button id="save-task" type="submit" class="primary">保存创作任务</button>
+            <button type="button" class="secondary" data-nav="review">继续历史素材复盘 →</button>
           </div>
-          <p id="brief-error" class="error wide" role="alert"></p>
+          <div id="task-migration-notice" class="notice compact migration-notice wide" role="status" hidden>
+            <span id="task-migration-message"></span>
+            <button id="dismiss-task-migration" type="button" class="notice-dismiss" aria-label="关闭迁移提示">知道了</button>
+          </div>
+          <p id="task-save-hint" class="helper wide">创作任务是可选上下文；即使留空，也可以直接复盘并生成下一版任务。</p>
+          <p id="task-error" class="error wide" role="alert"></p>
         </form>
       </section>
 
-      <section id="review" class="view">
+      <section id="review" class="view" role="tabpanel" aria-labelledby="tab-review">
         <div class="page-heading">
           <div><p class="step">STEP 02</p><h2>导入历史数据并补齐标签</h2></div>
-          <span id="report-state" class="status-dot">等待 CSV</span>
+          <span id="report-state" class="status-dot" role="status" aria-live="polite">等待 CSV</span>
         </div>
+        <div id="review-empty-state" class="empty-state" role="status">
+          <strong>从一份历史素材报表开始</strong>
+          <p>只需要“素材名称”和“消耗”两列；创作任务可以留空，不影响复盘。</p>
+        </div>
+        <div id="review-restore-notice" class="notice compact" role="status" hidden>已恢复上一次复盘摘要。原 CSV、字段映射和标签编辑会话未保存；如需修改，请重新导入报表。</div>
         <div class="card upload-card">
-          <label class="file-drop" for="report-file">
+          <label id="report-file-trigger" class="file-drop" for="report-file" role="button" tabindex="0" aria-controls="report-file">
             <span class="file-icon">CSV</span>
             <strong>选择千川素材报表</strong>
-            <small id="report-file-name">支持逗号、制表符或分号分隔的 UTF-8 文件</small>
+            <small id="report-file-name">CSV / TSV，最大 8 MB、50,000 行、200 列；读取与分析仅在本地完成</small>
           </label>
           <input id="report-file" type="file" accept=".csv,text/csv,.tsv,text/tab-separated-values" hidden>
           <label class="field">目标支付 ROI
@@ -110,23 +149,25 @@
           </div>
           <div class="card">
             <div class="section-title"><h3>导入预览</h3><span>前 5 行</span></div>
-            <div id="csv-preview" class="table-scroll"></div>
+            <div id="csv-preview" class="table-scroll" tabindex="0" role="region" aria-label="导入报表前五行，可横向滚动"></div>
           </div>
           <details class="card tag-details" open>
             <summary><span>补齐素材标签</span><small id="tag-progress">0 条素材</small></summary>
-            <p class="helper">人群、钩子、卖点和场景会直接影响策略质量。修改内容仅保存在本地。</p>
+            <p class="helper">受众、钩子、核心主张和场景会直接影响策略质量。修改内容仅保存在本地。</p>
             <div id="tag-editor" class="stack tag-editor"></div>
             <div class="tag-pagination">
               <button id="tag-prev" type="button" class="secondary">上一页</button>
-              <span id="tag-page">1 / 1</span>
+              <span id="tag-page" role="status" aria-live="polite">1 / 1</span>
               <button id="tag-next" type="button" class="secondary">下一页</button>
             </div>
           </details>
-          <button id="analyze-button" class="primary" disabled>完成复盘</button>
+          <button id="analyze-button" type="button" class="primary" aria-describedby="analysis-button-help" disabled>完成复盘</button>
+          <p id="analysis-button-help" class="helper" tabindex="-1">先选择报表并映射“素材名称”和“消耗”两列。</p>
           <p id="analysis-error" class="error" role="alert"></p>
         </section>
 
-        <section id="results" hidden>
+        <section id="results" tabindex="-1" aria-label="历史素材复盘结果" hidden>
+          <div id="review-stale-notice" class="notice" role="status" hidden>以下为上一次复盘结果。当前报表、标签或 ROI 已变化，请重新完成复盘后再生成。</div>
           <div class="metrics">
             <article><span>素材</span><strong id="metric-count">0</strong></article>
             <article><span>总消耗</span><strong id="metric-spend">0</strong></article>
@@ -145,35 +186,39 @@
             <div id="tag-insights" class="insight-grid"></div>
           </div>
           <div class="actions three">
-            <button id="export-analysis-json" class="secondary">JSON</button>
-            <button id="export-analysis-md" class="secondary">Markdown</button>
-            <button class="primary" data-nav="next">生成下一批 →</button>
+            <button id="export-analysis-json" type="button" class="secondary">JSON</button>
+            <button id="export-analysis-md" type="button" class="secondary">Markdown</button>
+            <button type="button" class="primary" data-nav="next">下一步：生成任务 →</button>
           </div>
         </section>
       </section>
 
-      <section id="next" class="view">
+      <section id="next" class="view" role="tabpanel" aria-labelledby="tab-next">
         <div class="page-heading">
           <div><p class="step">STEP 03</p><h2>生成可以直接开拍的任务</h2></div>
-          <span id="plan-state" class="status-dot">未生成</span>
+          <span id="plan-state" class="status-dot" role="status" aria-live="polite">未生成</span>
         </div>
-        <div id="plan-readiness" class="notice">需要先保存商品 Brief，并完成一次素材复盘。</div>
+        <div id="plan-readiness" class="notice">完成一次历史素材复盘即可生成；创作任务可以留空并稍后补充。</div>
         <div class="card controls">
           <label class="input-block">本轮唯一变量
             <select id="test-variable">
               <option value="hook">前三秒钩子</option>
-              <option value="sellingPoint">核心卖点</option>
+              <option value="sellingPoint">核心主张</option>
               <option value="scene">拍摄场景</option>
-              <option value="audience">目标人群</option>
+              <option value="audience">目标受众</option>
             </select>
           </label>
           <label class="input-block">单条最低测试消耗（元）
             <input id="min-spend" type="number" value="300" min="1" step="50">
           </label>
-          <button id="generate-plan" class="primary wide" disabled>生成素材策略与拍摄任务</button>
+          <button id="generate-plan" type="button" class="primary wide" aria-describedby="plan-readiness" disabled>生成素材策略与拍摄任务</button>
           <p id="plan-error" class="error wide" role="alert"></p>
         </div>
-        <section id="plan-results" hidden>
+        <div id="plan-empty-state" class="empty-state">
+          <strong>还没有下一版任务</strong>
+          <p>完成历史素材复盘后即可生成；上方创作任务只用于补充上下文，不是必填项。</p>
+        </div>
+        <section id="plan-results" tabindex="-1" aria-label="下一版任务结果" hidden>
           <div class="card plan-summary">
             <div><span>测试批次</span><strong id="plan-batch">—</strong></div>
             <div><span>基线素材</span><strong id="plan-baseline">—</strong></div>
@@ -181,77 +226,61 @@
           </div>
           <div id="plan-list" class="stack plan-list"></div>
           <div class="actions four">
-            <button id="copy-plan" class="primary">复制全部</button>
-            <button id="export-plan-md" class="secondary">Markdown</button>
-            <button id="export-plan-csv" class="secondary">CSV</button>
-            <button id="export-plan-json" class="secondary">JSON</button>
+            <button id="copy-plan" type="button" class="primary" aria-describedby="copy-state">复制全部</button>
+            <button id="export-plan-md" type="button" class="secondary" aria-describedby="copy-state">Markdown</button>
+            <button id="export-plan-csv" type="button" class="secondary" aria-describedby="copy-state">CSV</button>
+            <button id="export-plan-json" type="button" class="secondary" aria-describedby="copy-state">JSON</button>
           </div>
           <p id="copy-state" class="success" role="status"></p>
         </section>
       </section>
 
-      <section id="library" class="view">
+      <section id="library" class="view" role="tabpanel" aria-labelledby="tab-library">
         <div class="page-heading">
-          <div><p class="step">STEP 04</p><h2>本地素材与自有母版</h2></div>
+          <div><p class="step">STEP 04</p><h2>本地素材与工具</h2></div>
           <span class="status-dot good">不上传</span>
         </div>
-        <div class="card library-status">
-          <h3>当前项目资产</h3>
-          <div class="asset-counts">
-            <div><strong id="asset-brief">0</strong><span>商品 Brief</span></div>
-            <div><strong id="asset-report">0</strong><span>复盘素材</span></div>
-            <div><strong id="asset-plan">0</strong><span>拍摄方案</span></div>
-          </div>
-          <p class="helper">V0.5.0 保存最近一个工作项目；图片修复、转码和分析任务只在当前页面会话中保留，导出的清单由用户自行管理。</p>
-        </div>
-
-        <a id="open-analysis-workbench" class="workbench-entry" href="workbench.html" target="_blank" rel="noopener">
+        <a id="open-analysis-workbench" class="workbench-entry" href="workbench.html" target="_blank" rel="noopener" aria-label="打开全页素材分析服务台（在新标签页打开）">
           <span><strong>打开全页素材分析服务台</strong><small>本地视频标准化 · 音频提取 · 本地转写 · 文案结构</small></span>
           <b aria-hidden="true">↗</b>
         </a>
 
-        <details class="card update-center" open>
-          <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
-          <div class="version-grid">
-            <article><span>当前版本</span><strong id="update-current-version">检测中</strong></article>
-            <article><span>最新 Release</span><strong id="update-latest-version">尚未检查</strong></article>
+        <div class="card library-status">
+          <h3>当前项目资产</h3>
+          <div class="asset-counts">
+            <div><strong id="asset-task">0</strong><span>创作任务</span></div>
+            <div><strong id="asset-report">0</strong><span>复盘素材</span></div>
+            <div><strong id="asset-plan">0</strong><span>拍摄方案</span></div>
           </div>
-          <div id="update-status" class="notice compact">加载已解压的扩展不会静默自更新。你可以安全检查新版本，再确认是否打开官方下载页。</div>
-          <p id="update-checked-at" class="helper">尚未连接 GitHub 检查版本。</p>
-          <label class="update-opt-in">
-            <input id="auto-update-check" type="checkbox">
-            <span><strong>打开侧边栏时自动检查</strong><small>最多每天一次；仅读取本项目 GitHub Release 版本信息，不下载或执行代码。</small></span>
-          </label>
-          <div class="actions update-actions">
-            <button id="check-extension-update" type="button" class="secondary">检查新版本</button>
-            <button id="open-update-page" type="button" class="primary" disabled>确认并打开下载页</button>
-            <button id="export-update-backup" type="button" class="secondary">导出工作区备份</button>
-            <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
-            <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
+          <div id="library-empty-actions" class="library-empty-actions" hidden>
+            <p>当前还没有复盘素材或下一版任务。可以先导入历史素材，或直接打开服务台处理本地视频。</p>
+            <div class="actions">
+              <button type="button" class="secondary" data-nav="review">先导入历史素材</button>
+              <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="打开素材分析服务台（在新标签页打开）">打开服务台</a>
+            </div>
           </div>
-          <details class="rollback-guide">
-            <summary><span>安装失败与回退方法</span></summary>
-            <ol>
-              <li>更新前复制当前扩展目录，并导出上方工作区备份。</li>
-              <li>下载 Release 后先检查版本说明；加载已解压模式需要人工替换原目录文件，再在扩展管理页点击“重新加载”。</li>
-              <li>若新版本无法打开，把备份文件恢复到原目录并再次“重新加载”；浏览器本地数据不会被版本检查修改。</li>
-            </ol>
-          </details>
-        </details>
+          <p class="helper">V1.0.0 保存最近一个工作项目；图片修复、转码和分析任务只在当前页面会话中保留，导出的清单由用户自行管理。</p>
+        </div>
 
         <details class="card master-panel" open>
-          <summary><span>寻找商家自有母版</span><small>仅本地指纹匹配</small></summary>
-          <p class="helper">用于从商家拥有版权的原片目录中寻找同源文件，不检测或移除平台水印。</p>
+          <summary><span>寻找团队自有或已授权母版</span><small>仅本地指纹匹配</small></summary>
+          <p class="helper">用于从团队自有或已获得明确授权的原片目录中寻找同源文件，不检测或移除平台水印。为保护内存，单文件最多 256 MB、单轮合计最多 1 GB。</p>
           <label class="file-drop compact" for="platform-files">
             <strong>选择平台素材</strong><small id="platform-count">可多选视频或图片</small>
           </label>
           <input id="platform-files" type="file" accept="video/*,image/*" multiple hidden>
           <label class="file-drop compact" for="master-files">
-            <strong>选择自有母版文件夹</strong><small id="master-count">请选择商家拥有版权的原片目录</small>
+            <strong>选择团队母版文件夹</strong><small id="master-count">请选择团队自有或已授权的原片目录</small>
           </label>
           <input id="master-files" type="file" accept="video/*,image/*" webkitdirectory multiple hidden>
-          <button id="match-button" class="primary" disabled>开始匹配</button>
-          <div id="match-progress" class="progress" hidden><span></span></div>
+          <div class="actions">
+            <button id="match-button" class="primary" type="button" aria-describedby="match-button-help" disabled>开始匹配</button>
+            <button id="cancel-match" class="secondary" type="button" aria-describedby="match-button-help" hidden>取消本轮</button>
+          </div>
+          <p id="match-button-help" class="helper">请先选择平台素材和自有母版文件夹。</p>
+          <div id="match-progress" class="progress" role="status" aria-live="polite" aria-busy="false" hidden><span></span><span class="sr-only">正在本地匹配文件</span></div>
+          <div id="match-file-status" class="operation-list" aria-label="本轮文件处理状态" hidden></div>
+          <p id="match-status" class="success" role="status" aria-live="polite"></p>
           <p id="match-error" class="error" role="alert"></p>
         </details>
         <div id="match-results" class="card" hidden>
@@ -260,9 +289,9 @@
           <button id="export-matches" class="secondary full">导出匹配清单</button>
         </div>
 
-        <details id="image-repair-panel" class="card repair-panel" open>
+        <details id="image-repair-panel" class="card repair-panel">
           <summary><span>自有素材局部修复</span><small>人工圈选 · 仅本地处理</small></summary>
-          <div id="repair-master-priority" class="notice compact">请先使用上方“寻找商家自有母版”。如果已经找到干净母版或原始工程，应优先直接使用或重新导出，不建议进行像素修复。</div>
+          <div id="repair-master-priority" class="notice compact">请先使用上方“寻找团队自有或已授权母版”。如果已经找到干净母版或原始工程，应优先直接使用或重新导出，不建议进行像素修复。</div>
           <p class="helper">本工具只修复自有或已获授权图片中的普通瑕疵、污点、文字残留或误加的可见图层；不会自动识别或处理平台暗水印、隐藏指纹、版权标记或溯源标识。</p>
           <label class="file-drop compact" for="repair-image-file">
             <strong>选择自有或已授权图片</strong><small id="repair-file-label">支持 PNG、JPEG、静态 WebP；原图不会被覆盖</small>
@@ -279,7 +308,7 @@
               <span id="repair-image-size">—</span>
               <span id="repair-memory-estimate">—</span>
             </div>
-            <div class="repair-toolbar" role="toolbar" aria-label="局部修复画笔工具">
+            <div class="repair-toolbar" role="group" aria-label="局部修复画笔工具">
               <button id="repair-brush-tool" type="button" class="secondary active" aria-pressed="true">画笔</button>
               <button id="repair-eraser-tool" type="button" class="secondary" aria-pressed="false">橡皮擦</button>
               <label class="repair-range">画笔大小 <output id="repair-brush-size-label">40</output>
@@ -293,13 +322,26 @@
               </label>
             </div>
 
-            <div id="repair-canvas-shell" class="repair-canvas-shell" aria-label="图片与人工 Mask 画布">
+            <details class="repair-keyboard-mask">
+              <summary><span>键盘矩形选区</span><small>无需拖动画布</small></summary>
+              <p class="helper">按图片百分比填写矩形范围，再手动加入 Mask；它与画笔选区一样支持撤销、重做和清空。</p>
+              <div class="repair-rectangle-grid">
+                <label class="input-block">左边距 X（%）<input id="repair-rect-x" type="number" min="0" max="99" step="1" value="10"></label>
+                <label class="input-block">上边距 Y（%）<input id="repair-rect-y" type="number" min="0" max="99" step="1" value="10"></label>
+                <label class="input-block">宽度（%）<input id="repair-rect-width" type="number" min="1" max="100" step="1" value="20"></label>
+                <label class="input-block">高度（%）<input id="repair-rect-height" type="number" min="1" max="100" step="1" value="20"></label>
+              </div>
+              <button id="repair-add-rectangle" type="button" class="secondary full" aria-controls="repair-mask-canvas" aria-describedby="repair-mask-status" disabled>加入矩形选区</button>
+            </details>
+
+            <div id="repair-canvas-shell" class="repair-canvas-shell" role="group" aria-label="图片与人工 Mask 画布" aria-describedby="repair-mask-status">
               <canvas id="repair-preview-canvas"></canvas>
-              <canvas id="repair-mask-canvas"></canvas>
+              <canvas id="repair-mask-canvas" aria-label="可使用指针手动画选区；键盘用户可使用上方矩形选区"></canvas>
               <span class="repair-canvas-hint">红色区域为人工选区</span>
             </div>
-            <p id="repair-mask-status" class="helper">尚未绘制选区。只能修改你手动画出的 Mask 范围。</p>
-            <button id="run-image-repair" type="button" class="primary full" disabled>预览局部修复</button>
+            <p id="repair-mask-status" class="helper" role="status" aria-live="polite" tabindex="-1">尚未绘制选区。只能修改你手动画出的 Mask 范围。</p>
+            <button id="run-image-repair" type="button" class="primary full" aria-describedby="repair-mask-status" disabled>预览局部修复</button>
+            <p id="repair-status" class="success" role="status" aria-live="polite"></p>
             <p id="repair-error" class="error" role="alert"></p>
 
             <section id="repair-result" class="repair-result" hidden>
@@ -321,25 +363,28 @@
               </div>
               <div class="actions">
                 <button id="reset-image-repair" type="button" class="secondary">重置</button>
-                <button id="export-repaired-image" type="button" class="primary">导出新图片</button>
+                <button id="export-repaired-image" type="button" class="primary" aria-describedby="repair-mask-status">导出新图片</button>
               </div>
               <p class="helper">导出尺寸默认与原图一致，文件名追加 <code>_repaired</code>；原文件不会被修改或覆盖。</p>
             </section>
           </section>
         </details>
 
-        <details id="transcode-panel" class="card transcode-panel" open>
-          <summary><span>自有母版转码</span><small>本地 FFmpeg · 不上传</small></summary>
-          <div class="notice compact">仅处理商家自有或已获得明确授权的原片。浏览器不能直接启动本机程序：扩展会生成受限任务与命令，由随项目提供的本地执行器完成转码，再导入结果查看进度和失败原因。</div>
+        <details id="transcode-panel" class="card transcode-panel">
+          <summary><span>团队母版转码</span><small>本地 FFmpeg · 不上传</small></summary>
+          <div class="notice compact">仅处理团队自有或已获得明确授权的原片。浏览器不会执行转码，只生成受限任务与命令；由随项目提供的本地执行器在用户主动运行后调用 FFmpeg，再导入结果查看进度和失败原因。</div>
           <label class="file-drop compact" for="transcode-files">
-            <strong>选择要转码的自有/授权原片</strong><small id="transcode-file-count">支持多选视频；也可从上方母版匹配结果加入</small>
+            <strong>选择要转码的自有/授权原片</strong><small id="transcode-file-count">支持最多 100 个视频、合计 100 GB；也可从上方母版匹配结果加入</small>
           </label>
           <input id="transcode-files" type="file" accept="video/*,.mkv,.m4v,.mts,.m2ts" multiple hidden>
 
           <label class="authorization-check">
             <input id="transcode-authorization" type="checkbox">
-            <span><strong>我确认所选文件为商家自有或已获得明确转码授权的原片</strong><small>本功能只转换格式和编码，不检测、定位、移除或规避水印、来源标识与平台风控。</small></span>
+            <span><strong>我确认所选文件为团队自有或已获得明确转码授权的原片</strong><small>本功能只转换格式和编码，不检测、定位、移除或规避水印、来源标识与平台风控。</small></span>
           </label>
+
+          <div id="transcode-selection-list" class="operation-list" aria-label="已选转码文件"></div>
+          <button id="clear-transcode-selection" type="button" class="secondary full" aria-describedby="transcode-button-help" disabled>清空当前选择</button>
 
           <div class="transcode-grid">
             <label class="input-block wide required">自有原片根目录
@@ -401,12 +446,15 @@
             </label>
           </div>
           <p class="helper">输出固定为 MP4 / H.264 / AAC，并固定使用 <code>-map_metadata 0</code> 与 <code>-map_chapters 0</code> 保留可复制元数据和章节；不提供裁剪、模糊、清元数据或自定义滤镜。</p>
-          <button id="build-transcode-tasks" type="button" class="primary full">生成本地转码任务</button>
+          <button id="build-transcode-tasks" type="button" class="primary full" aria-describedby="transcode-button-help">生成本地转码任务</button>
+          <p id="transcode-button-help" class="helper">浏览器只生成待执行清单，不会在页面内转码；原始文件不会被覆盖。</p>
+          <p id="transcode-status" class="success" role="status" aria-live="polite"></p>
           <p id="transcode-error" class="error" role="alert"></p>
 
           <section id="transcode-queue" class="transcode-queue" hidden>
-            <div class="section-title"><h3>任务队列</h3><span id="transcode-progress-label">0 / 0</span></div>
-            <div class="queue-progress" aria-hidden="true"><span id="transcode-progress-bar"></span></div>
+            <div class="section-title"><h3>任务清单</h3><span id="transcode-progress-label" role="status" aria-live="polite">尚未生成</span></div>
+            <div id="transcode-progress" class="queue-progress" role="progressbar" aria-label="已导入的本机执行结果进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="尚未生成任务"><span id="transcode-progress-bar"></span></div>
+            <p id="transcode-queue-status" class="helper">浏览器仅生成任务；请在本机运行执行器后导入结果。</p>
             <div id="transcode-task-list" class="stack"></div>
             <div class="actions four transcode-actions">
               <button id="copy-transcode-commands" type="button" class="secondary">复制全部命令</button>
@@ -415,6 +463,7 @@
               <button id="import-transcode-result" type="button" class="secondary">导入执行结果</button>
               <input id="transcode-result-file" type="file" accept=".json,application/json" hidden>
             </div>
+            <p class="helper">本机执行结果仅支持最大 2 MB 的 JSON；格式错误不会覆盖当前任务状态。</p>
             <details class="rollback-guide">
               <summary><span>本机执行方法</span></summary>
               <ol>
@@ -426,10 +475,41 @@
           </section>
         </details>
 
+        <details class="card update-center">
+          <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
+          <div class="version-grid">
+            <article><span>当前版本</span><strong id="update-current-version">检测中</strong></article>
+            <article><span>最新 Release</span><strong id="update-latest-version">尚未检查</strong></article>
+          </div>
+          <div id="update-status" class="notice compact" role="status" aria-live="polite">加载已解压的扩展不会静默自更新。你可以安全检查新版本，再确认是否打开官方下载页。</div>
+          <p id="update-checked-at" class="helper">尚未连接 GitHub 检查版本。</p>
+          <label class="update-opt-in">
+            <input id="auto-update-check" type="checkbox">
+            <span><strong>打开侧边栏时自动检查</strong><small>最多每天一次；仅读取本项目 GitHub Release 版本信息，不下载或执行代码。</small></span>
+          </label>
+          <div class="actions update-actions">
+            <button id="check-extension-update" type="button" class="secondary" aria-describedby="update-status">检查新版本</button>
+            <button id="open-update-page" type="button" class="primary" aria-describedby="update-status" disabled>确认并打开下载页</button>
+            <button id="export-update-backup" type="button" class="secondary">导出工作区备份</button>
+            <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
+            <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <p class="helper">工作区备份仅支持最大 2 MB 的 JSON；导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
+          <details class="rollback-guide">
+            <summary><span>安装失败与回退方法</span></summary>
+            <ol>
+              <li>更新前复制当前扩展目录，并导出上方工作区备份。</li>
+              <li>下载 Release 后先检查版本说明；加载已解压模式需要人工替换原目录文件，再在扩展管理页点击“重新加载”。</li>
+              <li>若新版本无法打开，把备份文件恢复到原目录并再次“重新加载”；浏览器本地数据不会被版本检查修改。</li>
+            </ol>
+          </details>
+        </details>
+
         <details class="card prose">
           <summary><span>隐私与产品边界</span></summary>
-          <p>报表、Brief、策略和文件指纹默认只在浏览器本地处理与保存。扩展不读取账号密码，也不拦截千川网络请求。</p>
-          <p>自有母版匹配不移除、破解、定位或规避平台暗水印。需要干净素材时，请回到商家自有原片或已授权工程重新制作。</p>
+          <p>报表、创作任务、策略和文件指纹默认只在浏览器本地处理与保存。扩展不读取账号密码，也不拦截千川网络请求。</p>
+          <p>团队母版匹配不移除、破解、定位或规避平台暗水印。需要干净素材时，请回到团队自有原片或已授权工程重新制作。</p>
+          <button id="reopen-onboarding" type="button" class="secondary full">重新查看三步引导</button>
           <a href="https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent" target="_blank" rel="noreferrer">查看开源仓库</a>
         </details>
       </section>

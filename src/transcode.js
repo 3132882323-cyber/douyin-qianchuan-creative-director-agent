@@ -1,6 +1,13 @@
 export const TRANSCODE_MANIFEST_KIND = "qianchuan-owned-master-transcode-v1";
 export const TRANSCODE_RESULT_KIND = "qianchuan-owned-master-transcode-result-v1";
 
+const GIB = 1024 * 1024 * 1024;
+export const LOCAL_VIDEO_BATCH_LIMITS = Object.freeze({
+  maxFiles: 100,
+  maxSingleFileBytes: 20 * GIB,
+  maxTotalBytes: 100 * GIB
+});
+
 export const TRANSCODE_PRESETS = {
   balanced: { label: "均衡", encoderPreset: "medium", qualityMode: "crf", crf: 23, audioBitrateKbps: 192 },
   high_quality: { label: "高质量", encoderPreset: "slow", qualityMode: "crf", crf: 18, audioBitrateKbps: 256 },
@@ -85,6 +92,26 @@ export function isSupportedVideoFile(file = {}) {
   return dot >= 0 && VIDEO_EXTENSIONS.has(name.slice(dot));
 }
 
+export function validateLocalVideoBatch(files, limits = LOCAL_VIDEO_BATCH_LIMITS) {
+  const descriptors = [...(files || [])];
+  if (!descriptors.length) throw new Error("请选择至少一个可识别的视频原片");
+  if (descriptors.length > limits.maxFiles) throw new Error(`单批最多选择 ${limits.maxFiles} 个视频`);
+  let totalBytes = 0;
+  for (const file of descriptors) {
+    if (!isSupportedVideoFile(file)) throw new Error(`文件“${String(file?.name || "未命名文件")}”不是受支持的视频格式`);
+    const size = Number(file?.size);
+    if (!Number.isFinite(size) || size <= 0) throw new Error(`文件“${String(file?.name || "未命名文件")}”大小无效`);
+    if (size > limits.maxSingleFileBytes) {
+      throw new Error(`文件“${String(file.name)}”超过单文件 ${(limits.maxSingleFileBytes / GIB).toFixed(0)} GB 上限`);
+    }
+    totalBytes += size;
+    if (totalBytes > limits.maxTotalBytes) {
+      throw new Error(`所选视频总大小超过 ${(limits.maxTotalBytes / GIB).toFixed(0)} GB 上限`);
+    }
+  }
+  return { files: descriptors, count: descriptors.length, totalBytes };
+}
+
 export function ownedMasterRelativePath(file = {}) {
   const raw = cleanText(file.webkitRelativePath || file.relativePath || file.name, "文件相对路径", { required: true, maxLength: 500 }).replace(/\//g, "\\");
   const parts = raw.split("\\").filter(Boolean);
@@ -140,10 +167,10 @@ export function buildPowerShellCommand(task, ffmpegExecutable = "ffmpeg") {
 }
 
 export function createTranscodeManifest(files, rawSettings = {}, options = {}) {
-  if (!rawSettings.authorizationConfirmed) throw new Error("请先确认所选文件为商家自有或已获得明确转码授权的原片");
+  if (!rawSettings.authorizationConfirmed) throw new Error("请先确认所选文件为团队自有或已获得明确转码授权的原片");
   const settings = normalizeTranscodeSettings(rawSettings);
-  const descriptors = [...files].filter(isSupportedVideoFile);
-  if (!descriptors.length) throw new Error("请选择至少一个可识别的视频原片");
+  const descriptors = [...(files || [])];
+  validateLocalVideoBatch(descriptors, options.fileLimits || LOCAL_VIDEO_BATCH_LIMITS);
   const createdAt = options.createdAt || new Date().toISOString();
   const randomPart = globalThis.crypto?.randomUUID?.().slice(0, 8) || Math.random().toString(36).slice(2, 10);
   const manifestId = options.manifestId || `TX-${createdAt.replace(/\D/g, "").slice(0, 14)}-${randomPart}`;
@@ -185,10 +212,10 @@ export function createTranscodeManifest(files, rawSettings = {}, options = {}) {
     kind: TRANSCODE_MANIFEST_KIND,
     manifestId,
     createdAt,
-    creatorVersion: String(options.creatorVersion || "0.5.0"),
+    creatorVersion: String(options.creatorVersion || "1.0.0"),
     authorization: {
       confirmed: true,
-      statement: "用户确认所选文件为商家自有或已获得明确转码授权的原片。"
+      statement: "用户确认所选文件为团队自有或已获得明确转码授权的原片。"
     },
     processing: {
       mode: "local_ffmpeg_worker",

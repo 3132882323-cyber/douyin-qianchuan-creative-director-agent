@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V0.5.0</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.0</p>
           <h1>素材分析服务台</h1>
           <p>把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -30,7 +30,7 @@
 
       <div class="boundary" role="note">
         <strong>先找自有母版</strong>
-        <span>优先使用商家自有母版或原始工程。服务台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
+        <span>优先使用团队自有或已授权母版、原始工程。服务台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
       </div>
 
       <section id="source" class="panel">
@@ -38,7 +38,7 @@
         <div class="grid two">
           <label class="file-card" for="material-video-files">
             <strong>选择本地视频</strong>
-            <span id="material-file-label">支持多选 MP4、MOV、MKV、WebM 等视频</span>
+            <span id="material-file-label">最多 40 个视频、单文件 10 GB、合计 40 GB</span>
           </label>
           <input id="material-video-files" type="file" accept="video/*,.mkv,.m4v,.mts,.m2ts" multiple hidden>
           <div class="field-stack">
@@ -56,13 +56,16 @@
         </div>
         <label class="auth-check">
           <input id="material-authorization" type="checkbox">
-          <span><strong>我确认所选视频为商家自有或已取得明确处理授权</strong><small>未确认时不能生成任何处理任务。</small></span>
+          <span><strong>我确认所选视频为团队自有或已取得明确处理授权</strong><small>未确认时不能生成任何处理任务。</small></span>
         </label>
+        <div id="material-selection-list" class="operation-list" aria-label="已选本地视频"></div>
+        <button id="clear-material-selection" type="button" class="secondary wide" aria-describedby="material-readiness" disabled>清空当前选择</button>
         <div class="source-note">
           <label>抖音原页链接（可选，仅作来源备注）<input id="douyin-source-note" type="url" placeholder="https://www.douyin.com/video/..."></label>
           <button id="open-source-note" type="button" class="secondary">只打开原页</button>
         </div>
         <p class="help">这个字段不会发起解析请求，也不会下载链接中的媒体；只有点击“只打开原页”时，浏览器才会打开你填写的地址。</p>
+        <p id="source-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="source-error" class="error" role="alert"></p>
       </section>
 
@@ -73,11 +76,14 @@
           <article><b>2</b><strong>提取分析音频</strong><span>PCM 16-bit、16 kHz、单声道 WAV，供本地转写使用</span></article>
           <article><b>3</b><strong>导入执行结果</strong><span>逐项显示成功或失败原因，所有处理由本机 FFmpeg 完成</span></article>
         </div>
-        <button id="create-material-tasks" type="button" class="primary wide">一键生成“标准化 + 音频提取”本地任务</button>
+        <button id="create-material-tasks" type="button" class="primary wide" aria-describedby="material-readiness" disabled>一键生成“标准化 + 音频提取”本地任务</button>
+        <p id="material-readiness" class="help">还需选择视频、确认授权并填写输入与输出目录。</p>
+        <p id="processing-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="processing-error" class="error" role="alert"></p>
         <section id="processing-queue" hidden>
-          <div class="progress-head"><strong id="processing-progress-label">0 / 0</strong><span>任务进度</span></div>
-          <div class="progress"><span id="processing-progress-bar"></span></div>
+          <div class="progress-head"><strong id="processing-progress-label" role="status" aria-live="polite">0 / 0</strong><span>已导入的本机执行结果</span></div>
+          <div id="processing-progress" class="progress" role="progressbar" aria-label="已导入的本机执行结果进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="尚未生成任务"><span id="processing-progress-bar"></span></div>
+          <p id="processing-queue-status" class="help">浏览器仅生成任务；请在本机运行执行器后导入结果。</p>
           <div id="processing-task-list" class="task-list"></div>
           <div class="button-row">
             <button id="copy-material-commands" type="button" class="secondary">复制受限命令</button>
@@ -86,6 +92,7 @@
             <button id="import-material-result" type="button" class="secondary">导入执行结果</button>
             <input id="material-result-file" type="file" accept=".json,application/json" hidden>
           </div>
+          <p class="help">本机执行结果仅支持最大 2 MB 的 JSON；解析失败时保留当前任务状态。</p>
           <details class="instructions">
             <summary>怎样在本机执行？</summary>
             <ol>
@@ -113,12 +120,13 @@
         <div id="whisper-config" class="engine-config" hidden>
           <label>whisper-cli.exe 绝对路径<input id="whisper-executable" type="text" placeholder="例如 C:\Tools\whisper.cpp\whisper-cli.exe"></label>
           <label>本地 .bin 模型绝对路径<input id="whisper-model" type="text" placeholder="例如 C:\Models\ggml-base.bin"></label>
-          <button id="create-transcription-plan" type="button" class="secondary">生成固定参数的本地转写任务</button>
+          <button id="create-transcription-plan" type="button" class="secondary" aria-describedby="transcription-readiness" disabled>生成固定参数的本地转写任务</button>
           <div id="transcription-plan-actions" class="button-row compact" hidden>
             <button id="copy-transcription-commands" type="button" class="secondary">复制本地转写命令</button>
             <button id="export-transcription-plan" type="button" class="secondary">导出转写清单</button>
           </div>
           <p class="help">仅允许 <code>whisper-cli(.exe)</code>，参数由扩展固定生成；路径字段不会被当作任意 shell 命令执行。</p>
+          <p id="transcription-readiness" class="help">请先生成素材处理任务，并填写本机执行器与模型路径。</p>
         </div>
         <div class="transcript-import">
           <label class="file-card compact" for="transcript-file"><strong>导入本地转写文本</strong><span>TXT、MD、SRT、VTT，最大 4 MB</span></label>
@@ -126,13 +134,15 @@
           <span>或直接粘贴</span>
         </div>
         <label>转写正文<textarea id="transcript-text" rows="12" maxlength="200000" placeholder="在此粘贴已由本机引擎生成的文案，或导入 TXT / SRT / VTT…"></textarea></label>
+        <p id="transcription-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="transcription-error" class="error" role="alert"></p>
       </section>
 
       <section id="structure" class="panel">
         <div class="section-head"><div><span>STEP 04</span><h2>规则型文案结构分析</h2></div><em id="structure-status">尚未分析</em></div>
-        <p class="help">本模块只用浏览器内的确定性关键词规则标注钩子、人群、痛点、卖点、证据、场景和行动引导，不上传文本，也不预测投放效果。</p>
+        <p class="help">本模块只用浏览器内的确定性关键词规则标注钩子、受众、问题、核心主张、证据、场景和行动引导，不上传文本，也不预测投放效果。</p>
         <button id="analyze-transcript" type="button" class="primary wide">分析当前转写文本</button>
+        <p id="structure-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="structure-error" class="error" role="alert"></p>
         <section id="structure-result" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>

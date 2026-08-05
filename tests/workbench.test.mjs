@@ -2,15 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [html, script, manifestText] = await Promise.all([
+const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../workbench.html", import.meta.url), "utf8"),
   readFile(new URL("../workbench.js", import.meta.url), "utf8"),
+  readFile(new URL("../workbench.css", import.meta.url), "utf8"),
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V0.5.0 material-analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.0.0 material-analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材分析服务台/);
-  assert.match(html, /V0\.5\.0/);
+  assert.match(html, /V1\.0\.0/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
@@ -52,9 +53,40 @@ test("does not request Douyin, page interception or download permissions", () =>
 });
 
 test("states authorization, local transcription and rule-analysis limitations", () => {
-  assert.match(html, /我确认所选视频为商家自有或已取得明确处理授权/);
+  assert.match(html, /我确认所选视频为团队自有或已取得明确处理授权/);
   assert.match(html, /不调用云端转写/);
   assert.match(html, /仅允许 <code>whisper-cli\(\.exe\)<\/code>/u);
   assert.match(html, /确定性关键词规则/);
   assert.match(html, /不检测或移除暗水印、隐藏指纹、版权标记或来源标识/);
+});
+
+test("shows fail-closed file selection, disabled reasons and honest execution progress", () => {
+  for (const id of ["material-selection-list", "clear-material-selection", "material-readiness", "source-message", "source-error", "processing-message", "processing-error", "processing-progress", "processing-queue-status"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /最多 40 个视频、单文件 10 GB、合计 40 GB/u);
+  assert.match(html, /id="create-material-tasks"[^>]*aria-describedby="material-readiness"[^>]*disabled/u);
+  assert.match(html, /id="processing-progress"[^>]*role="progressbar"[^>]*aria-valuenow="0"/u);
+  assert.match(script, /validateLocalVideoBatch\(nextFiles, MATERIAL_VIDEO_BATCH_LIMITS\)/u);
+  assert.match(script, /本次没有加入任何文件/u);
+  assert.match(script, /浏览器已生成 \$\{progress\.total\} 个待执行任务，但尚未运行 FFmpeg/u);
+  assert.match(script, /progressNode\.setAttribute\("aria-valuetext"/u);
+  assert.match(css, /prefers-reduced-motion:\s*reduce/u);
+});
+
+test("keeps normal status separate from true alerts", () => {
+  for (const id of ["source-message", "processing-message", "transcription-message", "structure-message"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*role="status"`, "u"));
+  }
+  for (const id of ["source-error", "processing-error", "transcription-error", "structure-error"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*role="alert"`, "u"));
+  }
+  assert.match(script, /function setFeedback\(/u);
+});
+
+test("validates non-media imports and confirms destructive selection clearing", () => {
+  assert.match(script, /validateNonMediaImport\(file, "executionResult"\)/u);
+  assert.match(script, /validateNonMediaImport\(file, "transcript"\)/u);
+  assert.match(script, /parseJsonDocument/u);
+  assert.match(script, /window\.confirm\("将清空当前浏览器会话中的视频选择/u);
 });

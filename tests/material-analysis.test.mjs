@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LOCAL_TRANSCRIPTION_KIND,
+  MATERIAL_VIDEO_BATCH_LIMITS,
   MATERIAL_WORKFLOW_KIND,
   analyzeTranscriptStructure,
   createLocalTranscriptionPlan,
@@ -33,7 +34,7 @@ function materialManifest(overrides = {}) {
   return createMaterialProcessingManifest([ownedVideo], processingSettings(overrides), {
     manifestId: "TX-MATERIAL",
     createdAt: "2026-08-03T00:00:00.000Z",
-    creatorVersion: "0.5.0"
+    creatorVersion: "1.0.0"
   });
 }
 
@@ -67,6 +68,19 @@ test("builds only local standardization and fixed PCM audio extraction tasks", (
 
 test("requires ownership authorization before creating material tasks", () => {
   assert.throws(() => materialManifest({ authorizationConfirmed: false }), /自有或已获得明确转码授权/);
+});
+
+test("applies stricter fail-closed video limits in the material workbench", () => {
+  assert.deepEqual(MATERIAL_VIDEO_BATCH_LIMITS, {
+    maxFiles: 40,
+    maxSingleFileBytes: 10 * 1024 ** 3,
+    maxTotalBytes: 40 * 1024 ** 3
+  });
+  assert.throws(() => createMaterialProcessingManifest([
+    { ...ownedVideo, size: MATERIAL_VIDEO_BATCH_LIMITS.maxSingleFileBytes + 1 }
+  ], processingSettings()), /单文件 10 GB/);
+  const tooMany = Array.from({ length: 41 }, (_, index) => ({ ...ownedVideo, name: `${index}.mp4`, size: 1 }));
+  assert.throws(() => createMaterialProcessingManifest(tooMany, processingSettings()), /最多选择 40/);
 });
 
 test("creates a fixed-argument whisper.cpp plan without remote upload", () => {

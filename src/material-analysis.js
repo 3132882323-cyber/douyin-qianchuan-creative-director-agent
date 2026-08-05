@@ -1,15 +1,20 @@
-import { buildPowerShellCommand, createTranscodeManifest } from "./transcode.js";
+import { buildPowerShellCommand, createTranscodeManifest, validateLocalVideoBatch } from "./transcode.js";
 
 export const MATERIAL_WORKFLOW_KIND = "qianchuan-local-material-analysis-v1";
 export const LOCAL_TRANSCRIPTION_KIND = "qianchuan-local-transcription-handoff-v1";
 export const MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
+export const MATERIAL_VIDEO_BATCH_LIMITS = Object.freeze({
+  maxFiles: 40,
+  maxSingleFileBytes: 10 * 1024 * 1024 * 1024,
+  maxTotalBytes: 40 * 1024 * 1024 * 1024
+});
 
 const STRUCTURE_RULES = Object.freeze([
   { id: "hook", label: "开场钩子", patterns: [/你是不是|还在|千万别|别再|注意|看这里|为什么|没想到|今天告诉|先别划走|真的有人|居然|竟然|怎么选/u] },
-  { id: "audience", label: "目标人群", patterns: [/男士|女士|宝妈|学生|上班族|打工人|新手|老板|家庭|敏感肌|油皮|干皮|大码|小个子|通勤人群|经常.{0,8}的(?:人|朋友)/u] },
+  { id: "audience", label: "目标受众", patterns: [/男士|女士|宝妈|学生|上班族|打工人|新手|老板|家庭|敏感肌|油皮|干皮|大码|小个子|通勤人群|经常.{0,8}的(?:人|朋友)/u] },
   { id: "pain", label: "痛点问题", patterns: [/痛点|麻烦|担心|尴尬|难受|不舒服|闷|勒|粘|掉色|起球|过敏|油腻|费时|容易坏|不好用|不方便|踩雷|浪费/u] },
-  { id: "selling_point", label: "卖点利益", patterns: [/采用|使用|支持|可以|能够|更.{0,6}|透气|柔软|轻薄|耐用|方便|省时|显瘦|防晒|速干|舒适|稳固|好清洗|不易/u] },
+  { id: "selling_point", label: "核心主张", patterns: [/采用|使用|支持|可以|能够|更.{0,6}|透气|柔软|轻薄|耐用|方便|省时|显瘦|防晒|速干|舒适|稳固|好清洗|不易/u] },
   { id: "evidence", label: "信任证据", patterns: [/(?:\d+(?:\.\d+)?)(?:%|倍|天|小时|分钟|克|斤|厘米|cm|元|件|层)|实测|测试|检测|报告|认证|材质|成分|对比|细节|回购|评价|现场演示/u] },
   { id: "scene", label: "使用场景", patterns: [/上班|通勤|出门|户外|旅行|运动|健身|睡觉|居家|办公室|宿舍|夏天|冬天|雨天|约会|送礼|开车|带娃/u] },
   { id: "cta", label: "行动引导", patterns: [/点击|下单|购买|购物车|链接|领取|抢|马上|现在|到手|拍下|咨询|收藏|关注|试试/u] }
@@ -76,6 +81,7 @@ export function validateDouyinSourceNote(value) {
 }
 
 export function createMaterialProcessingManifest(files, rawSettings = {}, options = {}) {
+  validateLocalVideoBatch(files, MATERIAL_VIDEO_BATCH_LIMITS);
   const base = createTranscodeManifest(files, {
     ...rawSettings,
     authorizationConfirmed: rawSettings.authorizationConfirmed === true,
@@ -84,7 +90,7 @@ export function createMaterialProcessingManifest(files, rawSettings = {}, option
     frameRate: rawSettings.frameRate || "keep",
     sampleRate: rawSettings.sampleRate || "48000",
     outputSuffix: rawSettings.outputSuffix || "_analysis"
-  }, options);
+  }, { ...options, fileLimits: MATERIAL_VIDEO_BATCH_LIMITS });
   const sourceNote = validateDouyinSourceNote(rawSettings.sourceNote);
   const tasks = [];
   for (const baseTask of base.tasks) {
@@ -221,8 +227,8 @@ export function analyzeTranscriptStructure(rawText, options = {}) {
   const presentCount = Object.values(coverage).filter((item) => item.present).length;
   const missingAdvice = {
     hook: "补一句明确的反常识、问题或结果承诺，并确保事实可兑现。",
-    audience: "明确谁在什么情况下需要这件商品。",
-    pain: "补充目标人群可感知的具体问题，不夸大焦虑。",
+    audience: "明确谁在什么情况下需要看到这段内容。",
+    pain: "补充目标受众可感知的具体问题，不夸大焦虑。",
     selling_point: "把功能改写成可拍、可验证的用户利益。",
     evidence: "补充实测、材质细节、合规报告或真实演示。",
     scene: "加入一个真实使用场景，帮助观众代入。",

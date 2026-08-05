@@ -1,3 +1,5 @@
+import { spreadsheetSafeText } from "./release-safety.js";
+
 export const FIELD_DEFINITIONS = {
   creativeName: { label: "素材名称", required: true },
   spend: { label: "消耗", required: true },
@@ -8,11 +10,12 @@ export const FIELD_DEFINITIONS = {
   roi: { label: "支付 ROI" },
   audience: { label: "人群标签" },
   hook: { label: "前三秒钩子" },
-  sellingPoint: { label: "核心卖点" },
+  sellingPoint: { label: "核心主张" },
   scene: { label: "拍摄场景" }
 };
 
 export const TAG_FIELDS = ["audience", "hook", "sellingPoint", "scene"];
+export const CSV_STRUCTURE_LIMITS = Object.freeze({ maxRows: 50_000, maxColumns: 200 });
 
 export const ALIASES = {
   creativeName: ["creative_name", "creativeName", "素材名称", "创意名称", "素材", "创意", "广告创意名称", "视频名称", "creative"],
@@ -28,35 +31,28 @@ export const ALIASES = {
   scene: ["scene", "场景", "拍摄场景", "使用场景"]
 };
 
-export const BRIEF_TEMPLATES = {
-  custom: { label: "空白模板" },
-  apparel: {
-    label: "服饰",
-    painPoints: "版型不合身、面料不舒适、上身效果与想象不一致",
-    evidence: "面料近景、上身对比、尺码实测、真实买家反馈",
-    shootingConditions: "真人试穿、商品近景、室内全身机位",
-    forbiddenExpressions: "绝对显瘦、全网最低、百分百不起球"
+export const CREATIVE_TASK_TEMPLATES = {
+  custom: { label: "空白任务" },
+  performance: {
+    label: "效果验证",
+    creativeGoal: "用可拍摄、可核验的证据说明核心主张",
+    evidence: "同机位对比、过程实拍、关键细节特写",
+    shootingConstraints: "固定机位、统一光线、保留完整测试条件",
+    riskNotes: "不使用无法证明的效果承诺或绝对化表达"
   },
-  beauty: {
-    label: "美妆",
-    painPoints: "妆效不持久、肤感厚重、选色困难",
-    evidence: "上脸实测、持妆时间记录、成分或检测资料",
-    shootingConditions: "素颜与上妆对比、自然光近景、不同肤质模特",
-    forbiddenExpressions: "医疗功效、永久改善、适合所有肤质"
+  scenario: {
+    label: "场景共鸣",
+    creativeGoal: "让目标受众快速识别自己的使用场景与问题",
+    evidence: "真实场景、人物动作、问题发生与解决过程",
+    shootingConstraints: "优先实景拍摄，确保人物与场景素材已授权",
+    riskNotes: "不夸大焦虑，不虚构用户经历"
   },
-  food: {
-    label: "食品",
-    painPoints: "口味不确定、分量不清楚、食用不方便",
-    evidence: "配料表、净含量、开袋实拍、食用场景",
-    shootingConditions: "食品特写、开袋试吃、包装信息清晰可见",
-    forbiddenExpressions: "治疗疾病、零风险、夸大保健功效"
-  },
-  cleaning: {
-    label: "家清",
-    painPoints: "清洁费力、顽渍难处理、使用步骤复杂",
-    evidence: "同一污渍前后对比、计时实测、正确用量演示",
-    shootingConditions: "真实家居场景、固定机位、前后对比",
-    forbiddenExpressions: "百分百除菌、一次根除、无任何刺激"
+  story: {
+    label: "人物故事",
+    creativeGoal: "用人物经历完成问题—证据—行动的叙事闭环",
+    evidence: "人物口述、过程记录、可核验的前后变化",
+    shootingConstraints: "准备采访提纲、环境声和补充镜头",
+    riskNotes: "人物陈述需本人确认，事实与素材授权需复核"
   }
 };
 
@@ -106,8 +102,13 @@ export function parseCsvDocument(text) {
     row.push(value);
     if (row.some((cell) => cell.trim() !== "")) rows.push(row);
   }
+  if (quoted) throw new Error("CSV 存在未闭合的引号字段");
   if (rows.length < 2) throw new Error("CSV 至少需要表头和一行数据");
   const headers = rows[0].map((cell) => cell.trim());
+  if (headers.length > CSV_STRUCTURE_LIMITS.maxColumns) throw new Error(`CSV 列数超过 ${CSV_STRUCTURE_LIMITS.maxColumns} 列上限`);
+  if (headers.some((header) => !header)) throw new Error("CSV 表头不能包含空白列名");
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 表头包含重复列名，请先修改后再导入");
+  if (rows.length - 1 > CSV_STRUCTURE_LIMITS.maxRows) throw new Error(`CSV 数据超过 ${CSV_STRUCTURE_LIMITS.maxRows.toLocaleString("zh-CN")} 行上限`);
   const dataRows = rows.slice(1).map((cells) => Object.fromEntries(headers.map((header, i) => [header, cells[i] ?? ""])));
   return { headers, rows: dataRows, delimiter };
 }
@@ -179,9 +180,9 @@ function diagnoseRow(row, thresholds, targetRoi) {
   const cvrGood = row.cvr >= thresholds.cvrMedian;
   if (!enoughSample) return { confidence: "低", diagnosis: "样本不足，继续小额验证，不宜直接判定创意失败" };
   if (row.roi >= targetRoi && ctrGood) return { confidence: "高", diagnosis: "跑量与回报均达标，优先作为下一轮基线" };
-  if (ctrGood && !cvrGood) return { confidence: "中", diagnosis: "点击表现较好但转化承接偏弱，保留钩子并强化卖点证据" };
+  if (ctrGood && !cvrGood) return { confidence: "中", diagnosis: "点击表现较好但转化承接偏弱，保留钩子并强化主张证据" };
   if (!ctrGood && cvrGood) return { confidence: "中", diagnosis: "转化承接尚可但开场吸引不足，优先测试前三秒钩子" };
-  return { confidence: "中", diagnosis: "已有消耗但核心指标未达标，拆分钩子、卖点或场景做单变量测试" };
+  return { confidence: "中", diagnosis: "已有消耗但核心指标未达标，拆分钩子、核心主张或场景做单变量测试" };
 }
 
 export function analyzeReport(rawRows, targetRoi = 1, preferredMapping = {}) {
@@ -252,18 +253,39 @@ export function analyzeReport(rawRows, targetRoi = 1, preferredMapping = {}) {
   };
 }
 
-export function normalizeBrief(brief = {}) {
+export function normalizeCreativeTask(task = {}) {
+  const source = task && typeof task === "object" && !Array.isArray(task) ? task : {};
   return {
-    productName: String(brief.productName ?? "").trim(),
-    category: String(brief.category ?? "").trim(),
-    targetAudience: String(brief.targetAudience ?? "").trim(),
-    painPoints: String(brief.painPoints ?? "").trim(),
-    sellingPoints: String(brief.sellingPoints ?? "").trim(),
-    evidence: String(brief.evidence ?? "").trim(),
-    promotion: String(brief.promotion ?? "").trim(),
-    shootingConditions: String(brief.shootingConditions ?? "").trim(),
-    forbiddenExpressions: String(brief.forbiddenExpressions ?? "").trim(),
-    duration: [15, 30, 60].includes(Number(brief.duration)) ? Number(brief.duration) : 15
+    subject: String(source.subject ?? "").trim(),
+    targetAudience: String(source.targetAudience ?? "").trim(),
+    creativeGoal: String(source.creativeGoal ?? "").trim(),
+    audienceProblems: String(source.audienceProblems ?? "").trim(),
+    coreClaim: String(source.coreClaim ?? "").trim(),
+    evidence: String(source.evidence ?? "").trim(),
+    shootingConstraints: String(source.shootingConstraints ?? "").trim(),
+    riskNotes: String(source.riskNotes ?? "").trim(),
+    duration: [15, 30, 60].includes(Number(source.duration)) ? Number(source.duration) : 15
+  };
+}
+
+export function migrateLegacyProductBrief(legacy = {}) {
+  const source = legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy : {};
+  return {
+    ...normalizeCreativeTask({
+      subject: source.productName,
+      targetAudience: source.targetAudience,
+      creativeGoal: source.creativeGoal,
+      audienceProblems: source.painPoints,
+      coreClaim: source.sellingPoints,
+      evidence: source.evidence,
+      shootingConstraints: source.shootingConditions,
+      riskNotes: source.forbiddenExpressions,
+      duration: source.duration
+    }),
+    _migration: {
+      source: "productBrief",
+      archivedLegacyData: structuredClone(source)
+    }
   };
 }
 
@@ -280,10 +302,17 @@ function shorten(value, length = 24) {
   return text.length > length ? `${text.slice(0, length)}…` : text;
 }
 
-function productCode(name) {
-  let hash = 0;
-  for (const char of String(name || "SPU")) hash = (hash + char.codePointAt(0)) % 1000;
-  return `SPU${String(hash).padStart(3, "0")}`;
+function materialCode(name, generatedAt = new Date()) {
+  if (!String(name ?? "").trim()) {
+    const date = generatedAt.toISOString().slice(0, 10).replaceAll("-", "");
+    return `MAT${date}`;
+  }
+  let hash = 0x811c9dc5;
+  for (const char of String(name)) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `MAT${hash.toString(36).toUpperCase().padStart(7, "0")}`;
 }
 
 function uniqueVariants(values, fallbacks) {
@@ -296,83 +325,148 @@ function uniqueVariants(values, fallbacks) {
   return result;
 }
 
-function variantCandidates(variable, brief, baseline) {
-  const pain = first(brief.painPoints, "用户的核心使用痛点");
-  const selling = splitIdeas(brief.sellingPoints);
-  const evidence = first(brief.evidence, "真实使用证据");
-  const promotion = first(brief.promotion, "当前购买权益");
+function variantCandidates(variable, task, baseline) {
+  const pain = first(task.audienceProblems, "受众正在解决的具体问题");
+  const claims = splitIdeas(task.coreClaim);
+  const evidence = first(task.evidence, "真实可核验的证据");
+  const goal = first(task.creativeGoal, "把问题、证据和行动说清楚");
   const candidates = {
-    hook: [baseline.hook, `还在被${pain}困扰？`, `${evidence}，结果到底怎么样`, `${promotion}，先看清再决定`],
-    sellingPoint: [baseline.sellingPoint, ...selling, evidence],
-    scene: [baseline.scene, ...splitIdeas(brief.shootingConditions), "真实使用场景", "同机位前后对比"],
-    audience: [baseline.audience, ...splitIdeas(brief.targetAudience), `正在解决${pain}的人`, "首次购买用户"]
+    hook: [baseline.hook, `还在被${pain}困扰？`, `${evidence}，结果到底怎么样`, `${goal}，先看证据再判断`],
+    sellingPoint: [baseline.sellingPoint, ...claims, evidence],
+    scene: [baseline.scene, ...splitIdeas(task.shootingConstraints), "真实使用场景", "同机位前后对比"],
+    audience: [baseline.audience, ...splitIdeas(task.targetAudience), `正在解决${pain}的人`, "首次接触这一主题的人"]
   };
   const fallbacks = {
-    hook: ["直接点出核心痛点", "展示使用前后变化", "用可验证证据建立信任", "说明当前购买权益"],
-    sellingPoint: ["核心功能利益", "使用体验", "可信证据", "价格与权益"],
-    scene: ["产品近景", "真实使用", "问题演示", "结果对比"],
-    audience: ["核心购买人群", "高意向人群", "问题困扰人群", "首次购买用户"]
+    hook: ["直接点出核心问题", "展示过程与变化", "用可验证证据建立信任", "明确本条内容的观看价值"],
+    sellingPoint: ["核心主张", "使用体验", "可信证据", "行动价值"],
+    scene: ["主体近景", "真实使用", "问题演示", "结果对比"],
+    audience: ["核心目标受众", "高意向受众", "问题困扰人群", "首次接触人群"]
   };
   return uniqueVariants(candidates[variable], fallbacks[variable]);
 }
 
-function buildScript(brief, creative) {
-  const pain = first(brief.painPoints, "这个常见问题");
-  const selling = creative.sellingPoint || first(brief.sellingPoints, "核心卖点");
-  const evidence = first(brief.evidence, "把真实细节拍清楚");
-  const promotion = first(brief.promotion, "当前购买权益以商品页为准");
-  const product = brief.productName || "这款商品";
+function buildScript(task, creative) {
+  const pain = first(task.audienceProblems, "这个常见问题");
+  const claim = creative.coreClaim || creative.sellingPoint || first(task.coreClaim, "本条内容的核心主张");
+  const evidence = first(task.evidence, "把真实细节拍清楚");
+  const subject = task.subject || "这个主题";
   const lines = [
-    creative.hook || `如果你也在意${pain}，先别急着下单。`,
-    `${product}这次重点解决的是${pain}，核心是${selling}。`,
+    creative.hook || `如果你也在意${pain}，先看清事实再判断。`,
+    `${subject}这条素材先回应${pain}，核心主张是${claim}。`,
     `镜头直接看${evidence}，不靠口头夸张。`,
-    `${promotion}。适合${creative.audience || brief.targetAudience || "有相关需求的人"}，下单前请核对商品页信息。`
+    `适合${creative.audience || task.targetAudience || "有相关需求的人"}；行动引导发布前由编导补齐，并人工核验所有事实与证据。`
   ];
-  if (brief.duration >= 30) lines.splice(2, 0, `我们会在${creative.scene || "真实使用场景"}里，把使用步骤和结果完整演示一遍。`);
+  if (task.duration >= 30) lines.splice(2, 0, `我们会在${creative.scene || "真实使用场景"}里，把过程和结果完整演示一遍。`);
   return lines.join("\n");
 }
 
-function buildStoryboard(brief, creative) {
-  const duration = brief.duration;
+function buildStoryboard(task, creative) {
+  const duration = task.duration;
   const middle = duration === 15 ? "3-10秒" : duration === 30 ? "3-20秒" : "3-45秒";
   const close = duration === 15 ? "10-15秒" : duration === 30 ? "20-30秒" : "45-60秒";
+  const claim = creative.coreClaim || creative.sellingPoint || first(task.coreClaim, "核心主张");
   return [
-    `0-3秒｜近景/问题现场｜${creative.hook || "直接提出用户痛点"}｜大字幕只保留一个信息点`,
-    `${middle}｜${creative.scene || "真实使用场景"}｜演示${creative.sellingPoint || first(brief.sellingPoints, "核心卖点")}与${first(brief.evidence, "可信证据")}｜关键细节给特写`,
-    `${close}｜商品与人物同框｜说明${first(brief.promotion, "购买权益")}并引导核对商品页｜避免制造虚假紧迫感`
+    `0-3秒｜近景/问题现场｜${creative.hook || "直接提出受众问题"}｜大字幕只保留一个信息点`,
+    `${middle}｜${creative.scene || "真实使用场景"}｜演示${claim}与${first(task.evidence, "可信证据")}｜关键细节给特写`,
+    `${close}｜人物、结果与行动提示同框｜明确下一步行动并保留事实核验空间｜避免制造虚假紧迫感`
   ].join("\n");
 }
 
-function buildProduction(brief, creative) {
+function buildProduction(task, creative) {
+  const claim = creative.coreClaim || creative.sellingPoint || "核心主张";
   const compliance = [
-    "商品、价格、优惠、库存等信息必须与实际页面一致。",
-    "效果展示保留测试条件，不使用无法证明的绝对化表述。",
+    "所有事实、数据、案例和证据必须由编导人工核验。",
+    "效果展示需保留测试条件，不使用无法证明的绝对化表述。",
     "人物、音乐、字体和素材须确认授权。",
-    brief.forbiddenExpressions ? `本项目禁用表达：${brief.forbiddenExpressions}` : "发布前补充并检查项目禁用表达。"
+    task.riskNotes ? `本任务风险备注：${task.riskNotes}` : "发布前补充并检查项目风险表达。"
   ];
   return {
-    spokenScript: buildScript(brief, creative),
-    storyboard: buildStoryboard(brief, creative),
-    shootingTask: [`测试编号：${creative.id}`, `场景：${creative.scene || "待确认"}`, `人群：${creative.audience || "待确认"}`, `必拍证据：${first(brief.evidence, "商品与使用细节")}`, `可用条件：${brief.shootingConditions || "请编导补充机位、演员、道具与场地"}`].join("\n"),
-    editingNotes: `前三秒只表达“${shorten(creative.hook || "核心痛点")}”；中段用特写证明“${shorten(creative.sellingPoint || "核心卖点")}”；${brief.duration} 秒内完成问题—证据—行动闭环，避免无关转场。`,
-    subtitleHighlights: [creative.hook, creative.sellingPoint, first(brief.evidence, "真实证据"), first(brief.promotion, "购买权益")].filter(Boolean).map((item) => `• ${item}`).join("\n"),
+    spokenScript: buildScript(task, creative),
+    storyboard: buildStoryboard(task, creative),
+    shootingTask: [`测试编号：${creative.id}`, `场景：${creative.scene || "待确认"}`, `受众：${creative.audience || "待确认"}`, `必拍证据：${first(task.evidence, "主体与过程细节")}`, `拍摄限制：${task.shootingConstraints || "请编导补充机位、演员、道具与场地"}`].join("\n"),
+    editingNotes: `前三秒只表达“${shorten(creative.hook || "核心问题")}”；中段用特写证明“${shorten(claim)}”；${task.duration} 秒内完成问题—证据—行动闭环，避免无关转场。`,
+    subtitleHighlights: [creative.hook, claim, first(task.evidence, "真实证据"), first(task.creativeGoal, "行动引导")].filter(Boolean).map((item) => `• ${item}`).join("\n"),
     complianceChecklist: compliance.join("\n")
   };
 }
 
-export function generateCreativePlan(inputBrief, analysis, options = {}) {
-  const brief = normalizeBrief(inputBrief);
-  if (!brief.productName) throw new Error("请先填写商品名称");
-  if (!analysis?.topCreatives?.length) throw new Error("请先完成素材复盘");
+const PLAN_SUMMARY_FIELDS = ["creativeCount", "totalSpend", "totalGmv", "blendedRoi", "targetRoi", "spendFloor", "impressionFloor", "ctrMedian", "cvrMedian"];
+const PLAN_ROW_TEXT_FIELDS = ["creativeName", "audience", "hook", "sellingPoint", "scene", "segment", "confidence", "diagnosis"];
+const PLAN_ROW_NUMBER_FIELDS = ["sourceIndex", "spend", "gmv", "roi", "impressions", "clicks", "conversions", "ctr", "cvr", "cpa"];
+
+function finiteFingerprintNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function stableSerialize(value) {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function fnv1a(value) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+export function creativePlanDependencySnapshot(inputTask, analysis, options = {}) {
   const allowedVariables = ["hook", "sellingPoint", "scene", "audience"];
-  const variable = allowedVariables.includes(options.testVariable) ? options.testVariable : "hook";
-  const variableLabels = { hook: "前三秒钩子", sellingPoint: "核心卖点", scene: "拍摄场景", audience: "目标人群" };
-  const variableCodes = { hook: "HOOK", sellingPoint: "SELL", scene: "SCENE", audience: "AUD" };
+  const testVariable = allowedVariables.includes(options.testVariable) ? options.testVariable : "hook";
+  const summarySource = analysis?.summary && typeof analysis.summary === "object" ? analysis.summary : {};
+  const minSpend = Math.max(1, numberOf(options.minSpend) || Math.round(Math.max(finiteFingerprintNumber(summarySource.spendFloor), 300)));
+  const columnsSource = analysis?.columns && typeof analysis.columns === "object" ? analysis.columns : {};
+  const summary = Object.fromEntries(PLAN_SUMMARY_FIELDS.map((key) => [key, finiteFingerprintNumber(summarySource[key])]));
+  const topCreatives = Array.isArray(analysis?.topCreatives) ? analysis.topCreatives.map((entry) => {
+    const row = entry && typeof entry === "object" ? entry : {};
+    return {
+      ...Object.fromEntries(PLAN_ROW_TEXT_FIELDS.map((key) => [key, String(row[key] ?? "").trim()])),
+      ...Object.fromEntries(PLAN_ROW_NUMBER_FIELDS.map((key) => [key, finiteFingerprintNumber(row[key])]))
+    };
+  }) : [];
+  const tagSource = analysis?.tagInsights && typeof analysis.tagInsights === "object" ? analysis.tagInsights : {};
+  const tagInsights = Object.fromEntries(TAG_FIELDS.map((field) => [field, Array.isArray(tagSource[field]) ? tagSource[field].map((entry) => ({
+    value: String(entry?.value ?? "").trim(),
+    creativeCount: finiteFingerprintNumber(entry?.creativeCount),
+    spend: finiteFingerprintNumber(entry?.spend),
+    roi: finiteFingerprintNumber(entry?.roi)
+  })) : []]));
+  return {
+    creativeTask: normalizeCreativeTask(inputTask),
+    analysis: {
+      columns: Object.fromEntries(Object.keys(FIELD_DEFINITIONS).filter((key) => typeof columnsSource[key] === "string").map((key) => [key, columnsSource[key].trim()])),
+      summary,
+      topCreatives,
+      tagInsights
+    },
+    testVariable,
+    minSpend
+  };
+}
+
+export function creativePlanDependencyFingerprint(inputTask, analysis, options = {}) {
+  return `fnv1a32:${fnv1a(stableSerialize(creativePlanDependencySnapshot(inputTask, analysis, options)))}`;
+}
+
+export function generateCreativePlan(inputTask, analysis, options = {}) {
+  const creativeTask = normalizeCreativeTask(inputTask);
+  if (!analysis?.topCreatives?.length) throw new Error("请先完成素材复盘");
+  const dependencies = creativePlanDependencySnapshot(creativeTask, analysis, options);
+  const variable = dependencies.testVariable;
+  const variableLabels = { hook: "前三秒钩子", sellingPoint: "核心主张", scene: "拍摄场景", audience: "目标受众" };
+  const variableCodes = { hook: "HOOK", sellingPoint: "CLAIM", scene: "SCENE", audience: "AUD" };
   const baseline = analysis.topCreatives[0];
-  const variants = variantCandidates(variable, brief, baseline);
-  const minSpend = Math.max(1, numberOf(options.minSpend) || Math.round(Math.max(analysis.summary.spendFloor || 0, 300)));
+  const variants = variantCandidates(variable, creativeTask, baseline);
+  const minSpend = dependencies.minSpend;
   const observationMetrics = variable === "hook" ? "3 秒留存、CTR，辅助观察 ROI" : variable === "sellingPoint" ? "CVR、ROI，辅助观察 CTR" : variable === "scene" ? "CTR、CVR、ROI" : "CTR、CVR、CPA、ROI";
-  const baseId = `${productCode(brief.productName)}-${variableCodes[variable]}`;
+  const generatedAt = new Date();
+  const baseId = `${materialCode(creativeTask.subject || baseline.creativeName, generatedAt)}-${variableCodes[variable]}`;
   const items = variants.map((variant, index) => {
     const creative = {
       id: `${baseId}-${index === 0 ? "B00" : `A${String(index).padStart(2, "0")}`}`,
@@ -380,28 +474,29 @@ export function generateCreativePlan(inputBrief, analysis, options = {}) {
       baselineCreative: baseline.creativeName,
       singleVariable: variableLabels[variable],
       variant,
-      audience: variable === "audience" ? variant : (baseline.audience || brief.targetAudience),
-      hook: variable === "hook" ? variant : (baseline.hook || first(brief.painPoints, "直接提出核心问题")),
-      sellingPoint: variable === "sellingPoint" ? variant : (baseline.sellingPoint || first(brief.sellingPoints, "核心卖点")),
-      scene: variable === "scene" ? variant : (baseline.scene || first(brief.shootingConditions, "真实使用场景")),
+      audience: variable === "audience" ? variant : (baseline.audience || creativeTask.targetAudience),
+      hook: variable === "hook" ? variant : (baseline.hook || first(creativeTask.audienceProblems, "直接提出核心问题")),
+      coreClaim: variable === "sellingPoint" ? variant : (baseline.sellingPoint || first(creativeTask.coreClaim, "核心主张")),
+      scene: variable === "scene" ? variant : (baseline.scene || first(creativeTask.shootingConstraints, "真实使用场景")),
       hypothesis: index === 0 ? `保留历史素材“${baseline.creativeName}”作为对照，验证原有表现能否复现。` : `仅将${variableLabels[variable]}改为“${variant}”，预期在不损失 ROI 的前提下改善${observationMetrics.split("，")[0]}。`,
-      fixedElements: ["商品与价格机制", ...Object.entries({ audience: "目标人群", hook: "前三秒钩子", sellingPoint: "核心卖点", scene: "拍摄场景" }).filter(([key]) => key !== variable).map(([, label]) => label)].join("、"),
+      fixedElements: ["事实口径与行动引导", ...Object.entries({ audience: "目标受众", hook: "前三秒钩子", sellingPoint: "核心主张", scene: "拍摄场景" }).filter(([key]) => key !== variable).map(([, label]) => label)].join("、"),
       observationMetrics,
       minSpend,
       stopCondition: `单条消耗达到 ¥${formatMoney(minSpend)} 后再判断；若核心指标低于基线 80% 且无改善趋势，则停止。`,
       successAction: `若达到目标 ROI ${analysis.summary.targetRoi.toFixed(2)} 且核心指标优于基线，保留该变量进入下一轮测试。`
     };
-    creative.production = buildProduction(brief, creative);
+    creative.production = buildProduction(creativeTask, creative);
     return creative;
   });
   return {
-    generatedAt: new Date().toISOString(),
-    version: "0.5.0",
-    brief,
+    generatedAt: generatedAt.toISOString(),
+    version: "1.0.0",
+    dependencyFingerprint: creativePlanDependencyFingerprint(creativeTask, analysis, { testVariable: variable, minSpend }),
+    creativeTask,
     sourceSummary: analysis.summary,
     testVariable: variable,
     items,
-    notice: "本方案由本地规则基于 Brief 与历史报表生成，结论需由编导结合样本量、商品事实与平台规则复核。"
+    notice: "本方案由本地规则基于可选创作任务与历史报表生成，结论需由编导结合样本量、事实证据与平台规则复核。"
   };
 }
 
@@ -425,8 +520,8 @@ export function toMarkdown(result) {
 }
 
 export function planToMarkdown(plan) {
-  const { brief } = plan;
-  const lines = ["# 下一批素材拍摄方案", "", `- 商品：${brief.productName}`, `- 类目：${brief.category || "未填写"}`, `- 目标人群：${brief.targetAudience || "未填写"}`, `- 视频时长：${brief.duration} 秒`, "", "## 测试策略", ""];
+  const creativeTask = plan.creativeTask ?? migrateLegacyProductBrief(plan.brief ?? {});
+  const lines = ["# 下一版素材任务", "", `- 素材主题：${creativeTask.subject || "未填写（不影响生成）"}`, `- 目标受众：${creativeTask.targetAudience || "未填写"}`, `- 创作目标：${creativeTask.creativeGoal || "未填写"}`, `- 核心主张：${creativeTask.coreClaim || "未填写"}`, `- 可用证据：${creativeTask.evidence || "未填写"}`, `- 视频时长：${creativeTask.duration} 秒`, "", "## 测试策略", ""];
   for (const item of plan.items) {
     lines.push(`### ${item.id} · ${item.type}`, "", `- 测试假设：${item.hypothesis}`, `- 基线素材：${item.baselineCreative}`, `- 唯一变量：${item.singleVariable} → ${item.variant}`, `- 保持不变：${item.fixedElements}`, `- 观察指标：${item.observationMetrics}`, `- 最低消耗：¥${formatMoney(item.minSpend)}`, `- 停止条件：${item.stopCondition}`, `- 成功后：${item.successAction}`, "", "#### 口播稿", "", item.production.spokenScript, "", "#### 分镜", "", item.production.storyboard, "", "#### 拍摄任务单", "", item.production.shootingTask, "", "#### 剪辑要求", "", item.production.editingNotes, "", "#### 字幕重点", "", item.production.subtitleHighlights, "", "#### 合规检查", "", item.production.complianceChecklist, "");
   }
@@ -435,12 +530,12 @@ export function planToMarkdown(plan) {
 }
 
 function csvCell(value) {
-  const text = String(value ?? "");
+  const text = spreadsheetSafeText(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function planToCsv(plan) {
-  const headers = ["测试编号", "类型", "测试假设", "基线素材", "唯一变量", "变量值", "人群", "钩子", "卖点", "场景", "观察指标", "最低消耗", "停止条件", "成功后动作", "口播稿", "分镜", "拍摄任务单", "剪辑要求", "字幕重点", "合规检查"];
-  const rows = plan.items.map((item) => [item.id, item.type, item.hypothesis, item.baselineCreative, item.singleVariable, item.variant, item.audience, item.hook, item.sellingPoint, item.scene, item.observationMetrics, item.minSpend, item.stopCondition, item.successAction, item.production.spokenScript, item.production.storyboard, item.production.shootingTask, item.production.editingNotes, item.production.subtitleHighlights, item.production.complianceChecklist]);
+  const headers = ["测试编号", "类型", "测试假设", "基线素材", "唯一变量", "变量值", "目标受众", "钩子", "核心主张", "场景", "观察指标", "最低消耗", "停止条件", "成功后动作", "口播稿", "分镜", "拍摄任务单", "剪辑要求", "字幕重点", "合规检查"];
+  const rows = plan.items.map((item) => [item.id, item.type, item.hypothesis, item.baselineCreative, item.singleVariable, item.variant, item.audience, item.hook, item.coreClaim ?? item.sellingPoint, item.scene, item.observationMetrics, item.minSpend, item.stopCondition, item.successAction, item.production.spokenScript, item.production.storyboard, item.production.shootingTask, item.production.editingNotes, item.production.subtitleHighlights, item.production.complianceChecklist]);
   return `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
 }

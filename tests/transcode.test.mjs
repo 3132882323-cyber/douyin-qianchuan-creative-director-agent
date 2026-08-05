@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  LOCAL_VIDEO_BATCH_LIMITS,
   TRANSCODE_MANIFEST_KIND,
   TRANSCODE_RESULT_KIND,
   buildPowerShellCommand,
   createTranscodeManifest,
   normalizeTranscodeSettings,
   transcodeProgress,
+  validateLocalVideoBatch,
   validateTranscodeResult
 } from "../src/transcode.js";
 
@@ -36,7 +38,7 @@ test("builds local MP4 H.264/AAC tasks that preserve metadata and chapters", () 
   const manifest = createTranscodeManifest(ownedVideos, settings(), {
     createdAt: "2026-08-03T00:00:00.000Z",
     manifestId: "TX-TEST",
-    creatorVersion: "0.5.0"
+    creatorVersion: "1.0.0"
   });
   assert.equal(manifest.kind, TRANSCODE_MANIFEST_KIND);
   assert.equal(manifest.processing.remoteUpload, false);
@@ -74,7 +76,31 @@ test("requires explicit ownership authorization and valid local roots", () => {
   assert.throws(() => createTranscodeManifest(ownedVideos, settings({ sourceRoot: "" })), /自有原片根目录/);
   assert.throws(() => createTranscodeManifest(ownedVideos, settings({ outputRoot: "relative-output" })), /Windows 绝对路径/);
   assert.throws(() => createTranscodeManifest(ownedVideos, settings({ ffmpegExecutable: "powershell.exe" })), /ffmpeg\.exe/);
-  assert.throws(() => createTranscodeManifest([{ name: "说明.txt", type: "text/plain" }], settings()), /视频原片/);
+  assert.throws(() => createTranscodeManifest([{ name: "说明.txt", type: "text/plain", size: 12 }], settings()), /不是受支持的视频格式/);
+});
+
+test("fails closed on unsupported, empty, oversized and excessive local video batches", () => {
+  assert.deepEqual(LOCAL_VIDEO_BATCH_LIMITS, {
+    maxFiles: 100,
+    maxSingleFileBytes: 20 * 1024 ** 3,
+    maxTotalBytes: 100 * 1024 ** 3
+  });
+  const limits = { maxFiles: 2, maxSingleFileBytes: 100, maxTotalBytes: 150 };
+  assert.equal(validateLocalVideoBatch([{ name: "a.mp4", type: "video/mp4", size: 50 }], limits).totalBytes, 50);
+  assert.throws(() => validateLocalVideoBatch([], limits), /请选择至少一个/);
+  assert.throws(() => validateLocalVideoBatch([{ name: "a.txt", type: "text/plain", size: 5 }], limits), /不是受支持的视频格式/);
+  assert.throws(() => validateLocalVideoBatch([{ name: "a.mp4", type: "video/mp4", size: 0 }], limits), /大小无效/);
+  assert.throws(() => validateLocalVideoBatch([{ name: "a.mp4", type: "video/mp4", size: 101 }], limits), /单文件/);
+  assert.throws(() => validateLocalVideoBatch([
+    { name: "a.mp4", type: "video/mp4", size: 80 },
+    { name: "b.mp4", type: "video/mp4", size: 80 }
+  ], limits), /总大小/);
+  assert.throws(() => validateLocalVideoBatch([
+    { name: "a.mp4", type: "video/mp4", size: 10 },
+    { name: "b.mp4", type: "video/mp4", size: 10 },
+    { name: "c.mp4", type: "video/mp4", size: 10 }
+  ], limits), /最多选择 2/);
+  assert.throws(() => createTranscodeManifest([...ownedVideos, { name: "说明.txt", type: "text/plain", size: 8 }], settings()), /说明\.txt/);
 });
 
 test("quotes PowerShell paths instead of interpolating them", () => {

@@ -120,6 +120,16 @@ test("undo, redo and clear keep vector mask history consistent", () => {
   assert.deepEqual(currentMaskStrokes(history), []);
 });
 
+test("keyboard rectangle masks use the same undo and clear history", () => {
+  const rectangle = { tool: "brush", shape: "rect", x: 10, y: 12, width: 30, height: 18, size: 0, points: [] };
+  let history = commitMaskState(createMaskHistory(), [rectangle]);
+  assert.deepEqual(currentMaskStrokes(history), [rectangle]);
+  history = clearMaskState(history);
+  assert.deepEqual(currentMaskStrokes(history), []);
+  history = undoMaskState(history);
+  assert.deepEqual(currentMaskStrokes(history), [rectangle]);
+});
+
 test("rejects unsupported image formats with a clear error", () => {
   assert.throws(() => validateRepairFile({ name: "source.gif", type: "image/gif", size: 1200 }), /仅支持 PNG、JPEG 或静态 WebP/);
 });
