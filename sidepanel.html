@@ -10,18 +10,33 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.0</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.3</p>
         <h1>抖音千川素材编导</h1>
-        <p>从历史复盘到下一版可拍摄任务</p>
+        <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
       <span class="local-pill" title="数据仅保存在当前浏览器">本地</span>
     </header>
 
+    <section class="top-launcher" aria-label="快速开始">
+      <a id="open-analysis-workbench" class="workbench-entry" href="workbench.html" target="_blank" rel="noopener" aria-label="打开素材处理与分析工作台（在新标签页打开）">
+        <span><strong>打开素材处理与分析工作台</strong><small>深度处理自有视频 · 本地转写 · 文案结构分析</small></span>
+        <b aria-hidden="true">↗</b>
+      </a>
+      <section id="recent-task" class="recent-task" aria-labelledby="recent-task-label">
+        <div class="recent-task-copy">
+          <span id="recent-task-label">最近任务 · 仅本地</span>
+          <strong id="recent-task-title">正在读取本地工作区…</strong>
+          <small id="recent-task-description">这里只恢复当前浏览器保存的最近一个编导项目。</small>
+        </div>
+        <button id="continue-recent-task" type="button" class="secondary" aria-describedby="recent-task-description" disabled>请稍候</button>
+      </section>
+    </section>
+
     <nav class="tabs" aria-label="主工作区" role="tablist">
-      <button id="tab-task" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="task" data-view="task"><span>01</span>创作任务</button>
-      <button id="tab-review" class="tab" type="button" role="tab" aria-selected="false" aria-controls="review" data-view="review"><span>02</span>历史素材复盘</button>
-      <button id="tab-next" class="tab" type="button" role="tab" aria-selected="false" aria-controls="next" data-view="next"><span>03</span>下一版任务</button>
-      <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library" data-view="library"><span>04</span>本地素材与工具</button>
+      <button id="tab-task" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="task" tabindex="0" data-view="task"><span>01</span>创作任务</button>
+      <button id="tab-review" class="tab" type="button" role="tab" aria-selected="false" aria-controls="review" tabindex="-1" data-view="review"><span>02</span>历史素材复盘</button>
+      <button id="tab-next" class="tab" type="button" role="tab" aria-selected="false" aria-controls="next" tabindex="-1" data-view="next"><span>03</span>下一版任务</button>
+      <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library" tabindex="-1" data-view="library"><span>04</span>本地素材与工具</button>
     </nav>
 
     <aside class="workflow-guide" aria-label="当前工作进度">
@@ -58,7 +73,7 @@
         </div>
       </section>
 
-      <section id="task" class="view active" role="tabpanel" aria-labelledby="tab-task">
+      <section id="task" class="view active" role="tabpanel" aria-labelledby="tab-task" aria-hidden="false">
         <div class="page-heading">
           <div><p class="step">STEP 01 · 可选</p><h2>创建本次素材任务</h2></div>
           <span id="task-save-state" class="status-dot" role="status" aria-live="polite">未保存</span>
@@ -74,6 +89,33 @@
           </label>
           <p class="helper">模板只补充空白字段，不会覆盖已经填写的内容。</p>
         </div>
+        <section class="card handoff-card" aria-labelledby="analysis-handoff-title">
+          <div class="section-title">
+            <h3 id="analysis-handoff-title">导入工作台分析</h3>
+            <span>固定 JSON · 最大 128 KB</span>
+          </div>
+          <p class="helper">从“素材处理与分析工作台”导入受限交接包。它只提供确定性规则形成的编导参考，不是投放效果预测，也不会读取原始全文、文件名、视频或本机路径。</p>
+          <label id="analysis-handoff-file-trigger" class="file-drop compact" for="analysis-handoff-file" aria-controls="analysis-handoff-file">
+            <span class="file-icon">JSON</span>
+            <strong>选择分析交接包</strong>
+            <small>先预览，再由你确认；只会填入选中的空白字段。</small>
+          </label>
+          <input id="analysis-handoff-file" type="file" accept=".json,application/json" hidden>
+          <section id="analysis-handoff-preview" class="handoff-preview" aria-labelledby="analysis-handoff-preview-title" hidden>
+            <div class="section-title">
+              <h3 id="analysis-handoff-preview-title">待确认建议</h3>
+              <span id="analysis-handoff-summary"></span>
+            </div>
+            <div id="analysis-handoff-suggestions" class="handoff-suggestions"></div>
+            <div class="handoff-actions">
+              <button id="apply-analysis-handoff" type="button" class="primary" aria-describedby="analysis-handoff-boundary" disabled>确认填入选中的空白字段</button>
+              <button id="clear-analysis-handoff" type="button" class="secondary">清除预览</button>
+            </div>
+            <p id="analysis-handoff-boundary" class="helper">不会覆盖已有内容；导入建议仍需编导核对事实、证据与合规表达。</p>
+          </section>
+          <p id="analysis-handoff-message" class="success" role="status" aria-live="polite"></p>
+          <p id="analysis-handoff-error" class="error" role="alert"></p>
+        </section>
         <form id="creative-task-form" class="card form-grid">
           <label class="input-block wide">素材主题（可选）
             <input name="subject" type="text" placeholder="例如：通勤场景的真实体验">
@@ -119,7 +161,7 @@
         </form>
       </section>
 
-      <section id="review" class="view" role="tabpanel" aria-labelledby="tab-review">
+      <section id="review" class="view" role="tabpanel" aria-labelledby="tab-review" aria-hidden="true">
         <div class="page-heading">
           <div><p class="step">STEP 02</p><h2>导入历史数据并补齐标签</h2></div>
           <span id="report-state" class="status-dot" role="status" aria-live="polite">等待 CSV</span>
@@ -193,7 +235,7 @@
         </section>
       </section>
 
-      <section id="next" class="view" role="tabpanel" aria-labelledby="tab-next">
+      <section id="next" class="view" role="tabpanel" aria-labelledby="tab-next" aria-hidden="true">
         <div class="page-heading">
           <div><p class="step">STEP 03</p><h2>生成可以直接开拍的任务</h2></div>
           <span id="plan-state" class="status-dot" role="status" aria-live="polite">未生成</span>
@@ -235,16 +277,11 @@
         </section>
       </section>
 
-      <section id="library" class="view" role="tabpanel" aria-labelledby="tab-library">
+      <section id="library" class="view" role="tabpanel" aria-labelledby="tab-library" aria-hidden="true">
         <div class="page-heading">
           <div><p class="step">STEP 04</p><h2>本地素材与工具</h2></div>
           <span class="status-dot good">不上传</span>
         </div>
-        <a id="open-analysis-workbench" class="workbench-entry" href="workbench.html" target="_blank" rel="noopener" aria-label="打开全页素材分析服务台（在新标签页打开）">
-          <span><strong>打开全页素材分析服务台</strong><small>本地视频标准化 · 音频提取 · 本地转写 · 文案结构</small></span>
-          <b aria-hidden="true">↗</b>
-        </a>
-
         <div class="card library-status">
           <h3>当前项目资产</h3>
           <div class="asset-counts">
@@ -253,13 +290,13 @@
             <div><strong id="asset-plan">0</strong><span>拍摄方案</span></div>
           </div>
           <div id="library-empty-actions" class="library-empty-actions" hidden>
-            <p>当前还没有复盘素材或下一版任务。可以先导入历史素材，或直接打开服务台处理本地视频。</p>
+            <p>当前还没有复盘素材或下一版任务。可以先导入历史素材，或直接打开素材处理与分析工作台处理本地视频。</p>
             <div class="actions">
               <button type="button" class="secondary" data-nav="review">先导入历史素材</button>
-              <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="打开素材分析服务台（在新标签页打开）">打开服务台</a>
+              <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
             </div>
           </div>
-          <p class="helper">V1.0.0 保存最近一个工作项目；图片修复、转码和分析任务只在当前页面会话中保留，导出的清单由用户自行管理。</p>
+          <p class="helper">V1.0.3 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>

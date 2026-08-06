@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "抖音千川素材编导 Agent",
   "short_name": "千川编导",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "面向抖音千川素材编导的开源本地工作台：历史素材复盘、下一版任务、授权图片局部修复，以及自有视频处理与文案结构分析。",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "storage"],

@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>素材分析服务台 · 抖音千川素材编导</title>
+    <title>素材处理与分析工作台 · 抖音千川素材编导</title>
     <link rel="stylesheet" href="workbench.css">
   </head>
   <body>
     <aside class="sidebar">
-      <a class="brand" href="sidepanel.html"><span>千</span><strong>素材分析服务台</strong></a>
-      <nav aria-label="服务台步骤">
+      <a class="brand" href="sidepanel.html"><span>千</span><strong>素材处理与分析工作台</strong></a>
+      <nav aria-label="工作台步骤">
         <a href="#source"><b>01</b> 本地来源</a>
         <a href="#processing"><b>02</b> 本地处理</a>
         <a href="#transcription"><b>03</b> 本地转写</a>
@@ -21,37 +21,56 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.0</p>
-          <h1>素材分析服务台</h1>
-          <p>把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.3</p>
+          <h1>素材处理与分析工作台</h1>
+          <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
         <a class="ghost-button" href="sidepanel.html">返回侧边栏工作区</a>
       </header>
 
+      <section class="task-overview" aria-labelledby="task-overview-title">
+        <div class="overview-head">
+          <div>
+            <p class="eyebrow">CURRENT TASK</p>
+            <h2 id="task-overview-title">当前任务概览</h2>
+            <p id="workbench-overview-summary">先选择本地自有或已授权素材。</p>
+          </div>
+          <button id="workbench-next-step" type="button" class="primary" data-target="source" aria-describedby="workbench-overview-summary">下一步：选择本地素材</button>
+        </div>
+        <ol class="overview-steps" aria-label="素材处理与分析进度">
+          <li id="overview-source" class="current" aria-current="step"><span><b>01</b> 素材</span><strong id="overview-source-state">待选择</strong></li>
+          <li id="overview-processing"><span><b>02</b> 处理</span><strong id="overview-processing-state">待生成</strong></li>
+          <li id="overview-transcription"><span><b>03</b> 转写</span><strong id="overview-transcription-state">待导入</strong></li>
+          <li id="overview-structure"><span><b>04</b> 分析</span><strong id="overview-structure-state">待分析</strong></li>
+        </ol>
+      </section>
+
       <div class="boundary" role="note">
         <strong>先找自有母版</strong>
-        <span>优先使用团队自有或已授权母版、原始工程。服务台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
+        <span>优先使用团队自有或已授权母版、原始工程。工作台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
       </div>
 
       <section id="source" class="panel">
         <div class="section-head"><div><span>STEP 01</span><h2>选择本地自有素材</h2></div><em id="source-status">未选择</em></div>
-        <div class="grid two">
+        <div class="source-layout">
           <label class="file-card" for="material-video-files">
             <strong>选择本地视频</strong>
             <span id="material-file-label">最多 40 个视频、单文件 10 GB、合计 40 GB</span>
           </label>
           <input id="material-video-files" type="file" accept="video/*,.mkv,.m4v,.mts,.m2ts" multiple hidden>
-          <div class="field-stack">
-            <label>自有原片根目录<input id="material-source-root" type="text" placeholder="例如 D:\品牌素材\自有原片"></label>
-            <small>浏览器不会暴露绝对路径；任务会把此目录与所选文件名组合。</small>
-          </div>
-          <div class="field-stack">
-            <label>处理输出目录<input id="material-output-root" type="text" placeholder="例如 D:\品牌素材\分析输出"></label>
-            <small>标准化 MP4、16 kHz 单声道 WAV 与本地转写文本放在此处。</small>
-          </div>
-          <div class="field-stack">
-            <label>FFmpeg 路径<input id="material-ffmpeg-path" type="text" value="ffmpeg" placeholder="ffmpeg 或完整的 ffmpeg.exe 路径"></label>
-            <small>只允许 ffmpeg / ffmpeg.exe，不接受任意可执行命令。</small>
+          <div class="source-fields">
+            <div class="field-stack">
+              <label>自有原片根目录<input id="material-source-root" type="text" placeholder="例如 D:\品牌素材\自有原片"></label>
+              <small>浏览器不会暴露绝对路径；任务会把此目录与所选文件名组合。</small>
+            </div>
+            <div class="field-stack">
+              <label>处理输出目录<input id="material-output-root" type="text" placeholder="例如 D:\品牌素材\分析输出"></label>
+              <small>标准化 MP4、16 kHz 单声道 WAV 与本地转写文本放在此处。</small>
+            </div>
+            <div class="field-stack">
+              <label>FFmpeg 路径<input id="material-ffmpeg-path" type="text" value="ffmpeg" placeholder="ffmpeg 或完整的 ffmpeg.exe 路径"></label>
+              <small>只允许 ffmpeg / ffmpeg.exe，不接受任意可执行命令。</small>
+            </div>
           </div>
         </div>
         <label class="auth-check">
@@ -76,11 +95,11 @@
           <article><b>2</b><strong>提取分析音频</strong><span>PCM 16-bit、16 kHz、单声道 WAV，供本地转写使用</span></article>
           <article><b>3</b><strong>导入执行结果</strong><span>逐项显示成功或失败原因，所有处理由本机 FFmpeg 完成</span></article>
         </div>
-        <button id="create-material-tasks" type="button" class="primary wide" aria-describedby="material-readiness" disabled>一键生成“标准化 + 音频提取”本地任务</button>
+        <button id="create-material-tasks" type="button" class="primary wide" aria-describedby="material-readiness" aria-controls="processing-queue" aria-expanded="false" disabled>一键生成“标准化 + 音频提取”本地任务</button>
         <p id="material-readiness" class="help">还需选择视频、确认授权并填写输入与输出目录。</p>
         <p id="processing-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="processing-error" class="error" role="alert"></p>
-        <section id="processing-queue" hidden>
+        <section id="processing-queue" aria-label="本地处理任务队列" hidden>
           <div class="progress-head"><strong id="processing-progress-label" role="status" aria-live="polite">0 / 0</strong><span>已导入的本机执行结果</span></div>
           <div id="processing-progress" class="progress" role="progressbar" aria-label="已导入的本机执行结果进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="尚未生成任务"><span id="processing-progress-bar"></span></div>
           <p id="processing-queue-status" class="help">浏览器仅生成任务；请在本机运行执行器后导入结果。</p>
@@ -106,9 +125,9 @@
 
       <section id="transcription" class="panel">
         <div class="section-head"><div><span>STEP 03</span><h2>获取本地转写文本</h2></div><em id="transcript-status">等待文本</em></div>
-        <div class="grid two">
+        <div class="grid two transcription-settings">
           <label>转写方式
-            <select id="transcription-mode">
+            <select id="transcription-mode" aria-controls="whisper-config" aria-expanded="false">
               <option value="text_import">导入本地文本（无需引擎）</option>
               <option value="whisper_cpp">本机 whisper.cpp</option>
             </select>
@@ -141,13 +160,14 @@
       <section id="structure" class="panel">
         <div class="section-head"><div><span>STEP 04</span><h2>规则型文案结构分析</h2></div><em id="structure-status">尚未分析</em></div>
         <p class="help">本模块只用浏览器内的确定性关键词规则标注钩子、受众、问题、核心主张、证据、场景和行动引导，不上传文本，也不预测投放效果。</p>
-        <button id="analyze-transcript" type="button" class="primary wide">分析当前转写文本</button>
+        <button id="analyze-transcript" type="button" class="primary wide" aria-controls="structure-result" aria-expanded="false">分析当前转写文本</button>
         <p id="structure-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="structure-error" class="error" role="alert"></p>
-        <section id="structure-result" hidden>
+        <section id="structure-result" aria-label="文案结构分析结果" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
           <div id="coverage-grid" class="coverage-grid"></div>
-          <div class="result-head"><h3>分段标注</h3><div><button id="export-structure-json" class="secondary">JSON</button><button id="export-structure-md" class="secondary">Markdown</button></div></div>
+          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="export-analysis-handoff" type="button" class="primary" aria-describedby="structure-handoff-note">交接到编导台</button><button id="export-structure-json" type="button" class="secondary">JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
+          <p id="structure-handoff-note" class="help">交接包只包含固定结构摘要和四类短建议，不含原始全文、文件名、本机路径或视频信息；侧边栏不会自动写入，必须先预览并确认。</p>
           <div id="structure-segments" class="segment-list"></div>
           <div id="structure-recommendations" class="recommendations"></div>
           <p id="structure-disclaimer" class="help"></p>

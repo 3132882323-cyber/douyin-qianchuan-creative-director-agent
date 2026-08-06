@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.0.3");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -60,7 +60,30 @@ test("keeps narrow side panels and programmatic focus usable", () => {
   assert.match(css, /section\[tabindex="-1"\]:focus-visible/u);
   assert.match(css, /prefers-reduced-motion:\s*reduce/u);
   assert.match(script, /prefers-reduced-motion: reduce/u);
+  assert.match(script, /function focusAndReveal\(target/u);
+  assert.match(script, /target\.focus\(\);[\s\S]*target\.scrollIntoView/u);
+  assert.doesNotMatch(script, /preventScroll/u);
   assert.match(css, /\.tag-editor \{ max-height: none;[\s\S]*overflow: visible;/u);
+});
+
+test("previews a validated workbench handoff and only fills user-selected empty fields", () => {
+  for (const id of ["analysis-handoff-file", "analysis-handoff-preview", "analysis-handoff-summary", "analysis-handoff-suggestions", "apply-analysis-handoff", "clear-analysis-handoff", "analysis-handoff-message", "analysis-handoff-error"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /只会填入选中的空白字段/u);
+  assert.match(html, /不是投放效果预测/u);
+  assert.match(script, /validateAnalysisHandoffFile\(\{ name: file\.name, size: file\.size, type: file\.type \}\)/u);
+  assert.match(script, /validateAnalysisHandoff\(parseJsonDocument/u);
+  assert.match(script, /isDuplicateAnalysisHandoff\(handoff, state\.appliedAnalysisHandoffIds\)/u);
+  const importHandler = script.slice(script.indexOf('$("#analysis-handoff-file").addEventListener'), script.indexOf('$("#analysis-handoff-suggestions").addEventListener'));
+  assert.doesNotMatch(importHandler, /appliedAnalysisHandoffIds\.add/u);
+  assert.match(script, /state\.appliedAnalysisHandoffIds\.add\(state\.analysisHandoff\.handoffId\)/u);
+  assert.match(script, /clearAnalysisHandoffPreview\(\);[\s\S]*已确认填入的任务内容保持不变/u);
+  assert.match(script, /if \(!candidate\?\.canFill \|\| !field \|\| String\(field\.value\)\.trim\(\)\)/u);
+  assert.match(script, /#apply-analysis-handoff"\)\.addEventListener\("click"/u);
+  assert.match(script, /交接包已在本地校验并生成预览；尚未修改任何创作任务字段/u);
+  const storageKeys = script.match(/const STORAGE_KEYS = \[([^\]]+)\]/u)?.[1] || "";
+  assert.doesNotMatch(storageKeys, /handoff/iu);
 });
 
 test("removes the product workspace and wires an optional creative task", () => {
@@ -155,14 +178,22 @@ test("fails closed on background and delayed local-storage writes", () => {
   assert.match(script, /任务已生成，当前会话可复制或导出，但未能保存到浏览器/u);
 });
 
-test("prioritizes the workbench and master source while keeping secondary tools collapsed", () => {
+test("keeps one primary workbench entry above navigation and only a contextual library link", () => {
   const entryIndex = html.indexOf('id="open-analysis-workbench"');
+  const headerEndIndex = html.indexOf("</header>");
+  const tabsIndex = html.indexOf('class="tabs"');
+  const libraryStart = html.indexOf('id="library"');
   const libraryStatusIndex = html.indexOf('class="card library-status"');
   const masterIndex = html.indexOf('class="card master-panel"');
   const repairIndex = html.indexOf('id="image-repair-panel"');
   const transcodeIndex = html.indexOf('id="transcode-panel"');
   const updateIndex = html.indexOf('class="card update-center"');
-  assert.ok(entryIndex >= 0 && entryIndex < libraryStatusIndex);
+  assert.ok(entryIndex > headerEndIndex && entryIndex < tabsIndex);
+  assert.equal((html.match(/id="open-analysis-workbench"/gu) || []).length, 1);
+  assert.equal((html.match(/href="workbench\.html"/gu) || []).length, 2);
+  assert.doesNotMatch(html.slice(libraryStart), /id="open-analysis-workbench"|class="workbench-entry"/u);
+  assert.match(html.slice(libraryStart), /处理本地素材/u);
+  assert.match(html, /编导决策台/u);
   assert.ok(masterIndex > libraryStatusIndex);
   assert.ok(updateIndex > transcodeIndex);
   assert.match(html.slice(masterIndex, html.indexOf(">", masterIndex) + 1), /\bopen\b/u);
@@ -171,6 +202,32 @@ test("prioritizes the workbench and master source while keeping secondary tools 
   assert.doesNotMatch(html.slice(updateIndex, html.indexOf(">", updateIndex) + 1), /\bopen\b/u);
   assert.match(html, /id="library-empty-actions"/u);
   assert.match(html, /先导入历史素材/u);
+});
+
+test("wires a reliable recent-task continuation without adding storage keys", () => {
+  for (const id of ["recent-task", "recent-task-title", "recent-task-description", "continue-recent-task"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /id="continue-recent-task"[^>]*aria-describedby="recent-task-description"[^>]*disabled/u);
+  assert.match(script, /buildRecentWorkModel/u);
+  assert.match(script, /function renderRecentTask\(\)/u);
+  assert.match(script, /#continue-recent-task"\)\.addEventListener\("click"/u);
+  assert.match(script, /focusWorkflowTarget\(button\.dataset\.targetView, button\.dataset\.focusId\)/u);
+  const storageKeys = script.match(/const STORAGE_KEYS = \[([^\]]+)\]/u)?.[1] || "";
+  assert.doesNotMatch(storageKeys, /recent|workbench/iu);
+  assert.match(css, /@media\s*\(max-width:\s*400px\)[\s\S]*\.top-launcher\s*\{\s*padding:\s*9px/iu);
+  assert.match(css, /@media\s*\(max-width:\s*400px\)[\s\S]*\.recent-task \.secondary\s*\{[^}]*max-width:\s*110px/iu);
+});
+
+test("ships a keyboard-ready roving tab state before JavaScript initializes", () => {
+  assert.match(html, /id="tab-task"[^>]*aria-selected="true"[^>]*tabindex="0"/u);
+  for (const id of ["tab-review", "tab-next", "tab-library"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*aria-selected="false"[^>]*tabindex="-1"`, "u"));
+  }
+  assert.match(html, /id="task"[^>]*role="tabpanel"[^>]*aria-hidden="false"/u);
+  for (const id of ["review", "next", "library"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*role="tabpanel"[^>]*aria-hidden="true"`, "u"));
+  }
 });
 
 test("wires accessible status, tables, pagination and fail-closed local matching", () => {
@@ -184,7 +241,7 @@ test("wires accessible status, tables, pagination and fail-closed local matching
   assert.match(script, /cell\.scope = "col"/u);
   assert.match(script, /input\.setAttribute\("aria-label", `\$\{name[\s\S]*FIELD_DEFINITIONS\[field\]\.label/u);
   assert.match(html, /id="tag-page"[^>]*role="status"/u);
-  assert.match(script, /requestAnimationFrame\(\(\) => \$\("#tag-editor input"\)\?\.focus/u);
+  assert.match(script, /focusAndReveal\(\$\("#tag-editor input"\)\)/u);
   assert.match(fileGuardScript, /maxPlatformFiles:\s*40/u);
   assert.match(fileGuardScript, /maxMasterFiles:\s*120/u);
   assert.match(fileGuardScript, /maxSingleFileBytes:\s*256 \* MIB/u);
@@ -210,7 +267,7 @@ test("connects the authorized manual image-repair controls and owned-master shor
 test("keeps a visible entry to the separate local material-analysis workbench", () => {
   assert.match(html, /id="open-analysis-workbench"/u);
   assert.match(html, /href="workbench\.html"/u);
-  assert.match(html, /本地视频标准化 · 音频提取 · 本地转写 · 文案结构/u);
+  assert.match(html, /深度处理自有视频 · 本地转写 · 文案结构分析/u);
 });
 
 test("exposes an honest user-confirmed update center", () => {

@@ -51,6 +51,13 @@ import {
 } from "./src/local-image-repair.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
 import { recoverStoredWorkspace } from "./src/workspace-recovery.js";
+import { buildRecentWorkModel } from "./src/recent-work.js";
+import {
+  analysisHandoffFillCandidates,
+  isDuplicateAnalysisHandoff,
+  validateAnalysisHandoff,
+  validateAnalysisHandoffFile
+} from "./src/analysis-handoff.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["creativeTask", "productBrief", "targetRoi", "lastAnalysis", "creativePlan", "planExportReceipt", "updateSettings", "lastUpdateCheck", "migrationNoticePending", "onboardingDismissed"];
@@ -68,6 +75,8 @@ const state = {
   planStale: false,
   planExported: false,
   planExportReceipt: null,
+  analysisHandoff: null,
+  appliedAnalysisHandoffIds: new Set(),
   onboardingDismissed: false,
   recoveryIssues: [],
   recoveryInvalidKeys: [],
@@ -149,10 +158,7 @@ function showOnboarding({ focus = false, returnFocus = null } = {}) {
   onboardingReturnFocus = returnFocus;
   const guide = $("#onboarding-guide");
   guide.hidden = false;
-  if (focus) requestAnimationFrame(() => {
-    guide.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
-    guide.focus({ preventScroll: true });
-  });
+  if (focus) focusAndReveal(guide, { block: "start" });
 }
 
 async function dismissOnboarding({ moveToReview = false } = {}) {
@@ -171,7 +177,15 @@ function preferredScrollBehavior() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true ? "auto" : "smooth";
 }
 
-function switchView(viewId, { focusHeading = false } = {}) {
+function focusAndReveal(target, { block = "center" } = {}) {
+  if (!target) return;
+  requestAnimationFrame(() => {
+    target.focus();
+    target.scrollIntoView({ behavior: preferredScrollBehavior(), block, inline: "nearest" });
+  });
+}
+
+function switchView(viewId, { focusHeading = false, scrollTop = !focusHeading } = {}) {
   document.querySelectorAll(".tab").forEach((tab) => {
     const active = tab.dataset.view === viewId;
     tab.classList.toggle("active", active);
@@ -183,12 +197,12 @@ function switchView(viewId, { focusHeading = false } = {}) {
     view.classList.toggle("active", active);
     view.setAttribute("aria-hidden", String(!active));
   });
-  window.scrollTo({ top: 0, behavior: preferredScrollBehavior() });
+  if (scrollTop) window.scrollTo({ top: 0, behavior: preferredScrollBehavior() });
   if (focusHeading) {
     const heading = $(`#${viewId} h2`);
     if (heading) {
       heading.tabIndex = -1;
-      requestAnimationFrame(() => heading.focus({ preventScroll: true }));
+      focusAndReveal(heading, { block: "start" });
     }
   }
 }
@@ -296,13 +310,34 @@ function planMatchesCurrentContext(plan, task, analysis) {
 }
 
 function focusWorkflowTarget(viewId, elementId) {
-  switchView(viewId, { focusHeading: !elementId });
-  if (elementId) requestAnimationFrame(() => {
+  switchView(viewId, { focusHeading: !elementId, scrollTop: false });
+  if (elementId) {
     const requested = document.getElementById(elementId);
     const describedBy = requested?.disabled ? requested.getAttribute("aria-describedby")?.split(/\s+/)[0] : "";
     const target = describedBy ? document.getElementById(describedBy) : requested;
-    target?.focus({ preventScroll: true });
+    focusAndReveal(target);
+  }
+}
+
+function renderRecentTask() {
+  const model = buildRecentWorkModel({
+    hasCreativeTask: creativeTaskHasContent(state.creativeTask),
+    hasAnalysis: Boolean(state.analysis?.topCreatives?.length),
+    analysisCount: state.analysis?.summary?.creativeCount,
+    reviewPending: state.reviewPending,
+    planCount: state.plan?.items?.length,
+    planStale: state.planStale,
+    planExported: state.planExported
   });
+  const card = $("#recent-task");
+  card.dataset.state = model.kind;
+  setNodeText("#recent-task-title", model.title);
+  setNodeText("#recent-task-description", model.description);
+  const action = $("#continue-recent-task");
+  action.textContent = model.action;
+  action.dataset.targetView = model.targetView;
+  action.dataset.focusId = model.focusId;
+  action.disabled = false;
 }
 
 function updateWorkflowGuide() {
@@ -337,9 +372,15 @@ function updateWorkflowGuide() {
     action.dataset.targetView = "review";
     action.dataset.focusId = "report-file-trigger";
   }
+  renderRecentTask();
 }
 
 $("#workflow-next-action").addEventListener("click", (event) => {
+  const button = event.currentTarget;
+  focusWorkflowTarget(button.dataset.targetView, button.dataset.focusId);
+});
+
+$("#continue-recent-task").addEventListener("click", (event) => {
   const button = event.currentTarget;
   focusWorkflowTarget(button.dataset.targetView, button.dataset.focusId);
 });
@@ -373,6 +414,115 @@ function fillCreativeTaskForm(task = {}) {
     if (field) field.value = value ?? "";
   }
 }
+
+const HANDOFF_FIELD_LABELS = Object.freeze({
+  targetAudience: "目标受众",
+  audienceProblems: "受众问题",
+  coreClaim: "核心主张",
+  evidence: "可用证据"
+});
+
+function updateAnalysisHandoffApplyState() {
+  const selected = [...document.querySelectorAll("#analysis-handoff-suggestions input[data-handoff-field]:checked:not(:disabled)")];
+  $("#apply-analysis-handoff").disabled = selected.length === 0;
+}
+
+function renderAnalysisHandoffPreview(handoff) {
+  const candidates = analysisHandoffFillCandidates(handoff, readCreativeTaskForm());
+  state.analysisHandoff = handoff;
+  setNodeText("#analysis-handoff-summary", `确定性规则 · 覆盖 ${handoff.summary.coveredStructures}/${handoff.summary.totalStructures}`);
+  const container = $("#analysis-handoff-suggestions");
+  container.replaceChildren();
+  for (const candidate of candidates) {
+    const occupied = Boolean(String(readCreativeTaskForm()[candidate.field] ?? "").trim());
+    const row = element("label", `handoff-suggestion${candidate.canFill ? "" : " blocked"}`);
+    const checkbox = element("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.handoffField = candidate.field;
+    checkbox.checked = candidate.canFill;
+    checkbox.disabled = !candidate.canFill;
+    checkbox.addEventListener("change", updateAnalysisHandoffApplyState);
+    const copy = element("span", "handoff-suggestion-copy");
+    copy.append(
+      element("strong", "", HANDOFF_FIELD_LABELS[candidate.field]),
+      element("small", "", !candidate.value ? "分析未形成此项建议" : occupied ? "当前字段已有内容，将跳过" : "可填入空白字段"),
+      element("p", "", candidate.value || "—")
+    );
+    row.append(checkbox, copy);
+    container.append(row);
+  }
+  $("#analysis-handoff-preview").hidden = false;
+  updateAnalysisHandoffApplyState();
+}
+
+function clearAnalysisHandoffPreview() {
+  state.analysisHandoff = null;
+  $("#analysis-handoff-file").value = "";
+  $("#analysis-handoff-preview").hidden = true;
+  $("#analysis-handoff-suggestions").replaceChildren();
+  $("#apply-analysis-handoff").disabled = true;
+  setNodeText("#analysis-handoff-summary", "");
+}
+
+$("#analysis-handoff-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0] ?? null;
+  event.target.value = "";
+  if (!file) return;
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error");
+  try {
+    validateAnalysisHandoffFile({ name: file.name, size: file.size, type: file.type });
+    const handoff = validateAnalysisHandoff(parseJsonDocument(await file.text(), "分析交接包"));
+    if (isDuplicateAnalysisHandoff(handoff, state.appliedAnalysisHandoffIds)) {
+      throw new Error("这个交接包已在本次浏览器会话中成功应用；为避免重复填入，请导出新的分析结果");
+    }
+    renderAnalysisHandoffPreview(handoff);
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", {
+      status: "交接包已在本地校验并生成预览；尚未修改任何创作任务字段。"
+    });
+  } catch (error) {
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: error.message || "无法导入分析交接包" });
+  }
+});
+
+$("#analysis-handoff-suggestions").addEventListener("change", updateAnalysisHandoffApplyState);
+
+$("#apply-analysis-handoff").addEventListener("click", async () => {
+  if (!state.analysisHandoff) return;
+  const selected = [...document.querySelectorAll("#analysis-handoff-suggestions input[data-handoff-field]:checked:not(:disabled)")];
+  if (!selected.length) {
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "请至少选择一个仍为空白的建议字段" });
+    return;
+  }
+  const candidates = new Map(analysisHandoffFillCandidates(state.analysisHandoff, readCreativeTaskForm()).map((item) => [item.field, item]));
+  let filled = 0;
+  let skipped = 0;
+  for (const checkbox of selected) {
+    const candidate = candidates.get(checkbox.dataset.handoffField);
+    const field = $("#creative-task-form").elements.namedItem(checkbox.dataset.handoffField);
+    if (!candidate?.canFill || !field || String(field.value).trim()) {
+      skipped += 1;
+      continue;
+    }
+    field.value = candidate.value;
+    filled += 1;
+  }
+  if (!filled) {
+    renderAnalysisHandoffPreview(state.analysisHandoff);
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "所选字段当前均已有内容，未进行覆盖" });
+    return;
+  }
+  state.appliedAnalysisHandoffIds.add(state.analysisHandoff.handoffId);
+  const saved = await saveCreativeTask({ quiet: true });
+  renderAnalysisHandoffPreview(state.analysisHandoff);
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", saved
+    ? { status: `已确认填入 ${filled} 个空白字段${skipped ? `，跳过 ${skipped} 个已有内容的字段` : ""}；请继续人工核对。` }
+    : { error: "建议已填入当前表单，但本地保存失败；请检查上方任务保存提示后重试" });
+});
+
+$("#clear-analysis-handoff").addEventListener("click", () => {
+  clearAnalysisHandoffPreview();
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "交接包预览已清除；已确认填入的任务内容保持不变。" });
+});
 
 function taskSuggestions() {
   const task = readCreativeTaskForm();
@@ -573,14 +723,14 @@ function renderTagEditor() {
 $("#tag-prev").addEventListener("click", () => {
   if (state.tagPage > 0) state.tagPage -= 1;
   renderTagEditor();
-  requestAnimationFrame(() => $("#tag-editor input")?.focus({ preventScroll: true }));
+  focusAndReveal($("#tag-editor input"));
 });
 
 $("#tag-next").addEventListener("click", () => {
   const pageCount = Math.ceil((state.document?.rows.length ?? 0) / 25);
   if (state.tagPage < pageCount - 1) state.tagPage += 1;
   renderTagEditor();
-  requestAnimationFrame(() => $("#tag-editor input")?.focus({ preventScroll: true }));
+  focusAndReveal($("#tag-editor input"));
 });
 
 $("#report-file").addEventListener("change", async (event) => {
@@ -676,7 +826,7 @@ $("#analyze-button").addEventListener("click", async () => {
     updateLibraryCounts();
     $("#review-empty-state").hidden = true;
     updateWorkflowGuide();
-    requestAnimationFrame(() => $("#results").focus({ preventScroll: true }));
+    focusAndReveal($("#results"), { block: "start" });
   } catch (error) {
     $("#analysis-error").textContent = error.message || "分析失败，请检查字段映射与 CSV 内容";
     markReviewPending("本次复盘未成功；以下仍是上一次成功结果。");
@@ -784,7 +934,7 @@ $("#generate-plan").addEventListener("click", async () => {
     updateLibraryCounts();
     updatePlanEmptyState();
     updateWorkflowGuide();
-    requestAnimationFrame(() => $("#plan-results").focus({ preventScroll: true }));
+    focusAndReveal($("#plan-results"), { block: "start" });
   } catch (error) {
     $("#plan-error").textContent = error.message || "生成失败，请检查复盘数据";
   }
@@ -1612,7 +1762,7 @@ $("#repair-add-rectangle").addEventListener("click", () => {
   state.imageRepair.history = commitMaskState(state.imageRepair.history, [...currentMaskStrokes(state.imageRepair.history), rectangle]);
   renderRepairMask();
   updateRepairControls();
-  $("#repair-mask-status").focus({ preventScroll: true });
+  focusAndReveal($("#repair-mask-status"));
 });
 
 $("#run-image-repair").addEventListener("click", async () => {

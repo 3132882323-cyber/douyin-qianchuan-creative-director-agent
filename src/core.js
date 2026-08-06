@@ -490,7 +490,7 @@ export function generateCreativePlan(inputTask, analysis, options = {}) {
   });
   return {
     generatedAt: generatedAt.toISOString(),
-    version: "1.0.0",
+    version: "1.0.3",
     dependencyFingerprint: creativePlanDependencyFingerprint(creativeTask, analysis, { testVariable: variable, minSpend }),
     creativeTask,
     sourceSummary: analysis.summary,
