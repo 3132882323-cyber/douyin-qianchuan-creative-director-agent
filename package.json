@@ -1,11 +1,11 @@
 {
   "name": "douyin-qianchuan-creative-director-agent",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check service-worker.js && node --check sidepanel.js && node --check workbench.js && node --check src/core.js && node --check src/update.js && node --check src/transcode.js && node --check src/local-image-repair.js && node --check src/local-file-guard.js && node --check src/material-analysis.js && node --check src/release-safety.js && node --check src/workspace-recovery.js",
+    "check": "node --check service-worker.js && node --check sidepanel.js && node --check workbench.js && node --check src/core.js && node --check src/update.js && node --check src/transcode.js && node --check src/local-image-repair.js && node --check src/local-file-guard.js && node --check src/material-analysis.js && node --check src/release-safety.js && node --check src/workspace-recovery.js && node --check src/workbench-overview.js && node --check src/recent-work.js && node --check src/analysis-handoff.js",
     "verify": "npm test && npm run check"
   },
   "license": "MIT"

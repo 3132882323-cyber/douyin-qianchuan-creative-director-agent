@@ -9,13 +9,49 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.0.0 material-analysis workbench while keeping the side panel", () => {
-  assert.match(html, /素材分析服务台/);
-  assert.match(html, /V1\.0\.0/);
+test("ships a separate V1.0.3 material processing and analysis workbench while keeping the side panel", () => {
+  assert.match(html, /素材处理与分析工作台/);
+  assert.doesNotMatch(html, /素材分析服务台/u);
+  assert.match(html, /V1\.0\.3/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
   }
+});
+
+test("uses the expanded responsive canvas without a page-level 920px floor", () => {
+  assert.match(css, /\.sidebar\s*\{[^}]*width:\s*248px/iu);
+  assert.match(css, /main\s*\{[^}]*width:\s*min\(1400px,/iu);
+  assert.doesNotMatch(css, /min-width:\s*920px/iu);
+  assert.match(css, /@media\s*\(max-width:\s*1100px\)/iu);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)/iu);
+  assert.match(css, /\.source-fields\s*\{[^}]*repeat\(3,\s*minmax\(0,\s*1fr\)\)/iu);
+  assert.match(css, /\.segment-list\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/iu);
+  assert.match(css, /overflow-wrap:\s*anywhere/iu);
+});
+
+test("connects one four-step overview action to navigation and focus only", () => {
+  for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-next-step", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.equal((html.match(/id="workbench-next-step"/gu) || []).length, 1);
+  assert.match(script, /buildWorkbenchOverview/u);
+  assert.match(script, /#workbench-next-step"\)\.addEventListener\("click"/u);
+  assert.match(script, /scrollIntoView\(/u);
+  assert.match(script, /focusTarget\?\.focus\(\)/u);
+  assert.match(script, /block: focusTarget \? "center" : "start"/u);
+  assert.doesNotMatch(script, /preventScroll/u);
+  assert.doesNotMatch(script, /focusTarget\?\.click\(|section\?\.click\(/u);
+});
+
+test("exports a minimal validated handoff for explicit side-panel import", () => {
+  for (const id of ["export-analysis-handoff", "structure-handoff-note"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /不含原始全文、文件名、本机路径或视频信息/u);
+  assert.match(script, /createAnalysisHandoff\(state\.analysis\)/u);
+  assert.match(script, /qianchuan-analysis-handoff\.json/u);
+  assert.match(script, /请回到侧边栏预览并确认填入/u);
 });
 
 test("keeps every static workbench id selector connected", () => {

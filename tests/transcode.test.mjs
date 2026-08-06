@@ -38,7 +38,7 @@ test("builds local MP4 H.264/AAC tasks that preserve metadata and chapters", () 
   const manifest = createTranscodeManifest(ownedVideos, settings(), {
     createdAt: "2026-08-03T00:00:00.000Z",
     manifestId: "TX-TEST",
-    creatorVersion: "1.0.0"
+    creatorVersion: "1.0.3"
   });
   assert.equal(manifest.kind, TRANSCODE_MANIFEST_KIND);
   assert.equal(manifest.processing.remoteUpload, false);
