@@ -10,7 +10,7 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.3</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.4</p>
         <h1>抖音千川素材编导</h1>
         <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
@@ -95,13 +95,24 @@
             <span>固定 JSON · 最大 128 KB</span>
           </div>
           <p class="helper">从“素材处理与分析工作台”导入受限交接包。它只提供确定性规则形成的编导参考，不是投放效果预测，也不会读取原始全文、文件名、视频或本机路径。</p>
+          <section id="analysis-handoff-inbox" class="handoff-inbox" aria-labelledby="analysis-handoff-inbox-title" hidden>
+            <div class="section-title">
+              <h3 id="analysis-handoff-inbox-title">工作台分析已收到</h3>
+              <span id="analysis-handoff-inbox-meta">当前会话</span>
+            </div>
+            <p id="analysis-handoff-inbox-description">结果正在等待编导预览和确认。</p>
+            <div class="handoff-inbox-actions">
+              <button id="show-analysis-handoff-inbox" type="button" class="secondary" aria-describedby="analysis-handoff-inbox-description">查看待确认结果</button>
+              <button id="discard-analysis-handoff-inbox" type="button" class="secondary">清除会话结果</button>
+            </div>
+          </section>
           <label id="analysis-handoff-file-trigger" class="file-drop compact" for="analysis-handoff-file" aria-controls="analysis-handoff-file">
             <span class="file-icon">JSON</span>
             <strong>选择分析交接包</strong>
             <small>先预览，再由你确认；只会填入选中的空白字段。</small>
           </label>
           <input id="analysis-handoff-file" type="file" accept=".json,application/json" hidden>
-          <section id="analysis-handoff-preview" class="handoff-preview" aria-labelledby="analysis-handoff-preview-title" hidden>
+          <section id="analysis-handoff-preview" class="handoff-preview" aria-labelledby="analysis-handoff-preview-title" tabindex="-1" hidden>
             <div class="section-title">
               <h3 id="analysis-handoff-preview-title">待确认建议</h3>
               <span id="analysis-handoff-summary"></span>
@@ -296,7 +307,7 @@
               <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
             </div>
           </div>
-          <p class="helper">V1.0.3 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
+          <p class="helper">V1.0.4 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>

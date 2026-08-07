@@ -133,7 +133,7 @@ test("imports a V1 productBrief backup into creativeTask without leaking retired
   assert.equal(restored.creativePlan.items[0].coreClaim, "旧主张");
   assert.equal(restored.creativePlan.items[0].sellingPoint, undefined);
 
-  const nextSnapshot = safeUpdateSnapshot(restored, "1.0.3");
+  const nextSnapshot = safeUpdateSnapshot(restored, "1.0.4");
   const serialized = JSON.stringify(nextSnapshot);
   assert.equal(nextSnapshot.schemaVersion, 2);
   assert.doesNotMatch(serialized, /productName|category|promotion|productBrief|"brief"/u);
@@ -176,7 +176,7 @@ test("schema V2 strips unknown nested fields without deleting legitimate user te
     },
     updateSettings: { autoCheck: true, unknownSetting: sentinel },
     lastUpdateCheck: { checkedAt: "2026-08-05T00:00:00.000Z", currentVersion: "0.6.2", unknownUpdateField: sentinel }
-  }, "1.0.3");
+  }, "1.0.4");
   const restored = validateUpdateSnapshot(snapshot);
   const serialized = JSON.stringify(snapshot);
   assert.doesNotMatch(serialized, new RegExp(sentinel));

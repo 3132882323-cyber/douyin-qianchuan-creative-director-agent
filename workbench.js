@@ -11,7 +11,7 @@ import { isSupportedVideoFile, transcodeProgress, validateLocalVideoBatch, valid
 import { formatLocalBytes } from "./src/local-file-guard.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
 import { buildWorkbenchOverview } from "./src/workbench-overview.js";
-import { createAnalysisHandoff } from "./src/analysis-handoff.js";
+import { analysisHandoffForAnalysis, enqueueAnalysisHandoff, openAnalysisHandoffSidePanel } from "./src/analysis-handoff-inbox.js";
 
 const $ = (selector) => document.querySelector(selector);
 const VERSION = chrome.runtime.getManifest().version;
@@ -20,7 +20,8 @@ const state = {
   processingManifest: null,
   transcriptionPlan: null,
   transcriptSourceName: "手动粘贴文本",
-  analysis: null
+  analysis: null,
+  analysisHandoffCache: null
 };
 
 function setStatus(selector, text, good = false) {
@@ -492,6 +493,7 @@ $("#transcript-file").addEventListener("change", async (event) => {
     state.transcriptSourceName = file.name;
     setStatus("#transcript-status", `${text.length.toLocaleString("zh-CN")} 字符`, true);
     state.analysis = null;
+    state.analysisHandoffCache = null;
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "尚未分析");
@@ -508,6 +510,7 @@ $("#transcript-text").addEventListener("input", (event) => {
   setStatus("#transcript-status", length ? `${length.toLocaleString("zh-CN")} 字符` : "等待文本", length > 0);
   if (state.analysis) {
     state.analysis = null;
+    state.analysisHandoffCache = null;
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "需要重新分析");
@@ -557,10 +560,12 @@ $("#analyze-transcript").addEventListener("click", () => {
   setFeedback("#structure-message", "#structure-error");
   try {
     state.analysis = analyzeTranscriptStructure($("#transcript-text").value, { sourceName: state.transcriptSourceName });
+    state.analysisHandoffCache = null;
     renderStructureAnalysis(state.analysis);
     setFeedback("#structure-message", "#structure-error", { status: "结构分析已在浏览器本地完成；结果来自确定性规则，不代表投放效果预测。" });
   } catch (error) {
     state.analysis = null;
+    state.analysisHandoffCache = null;
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "尚未分析");
@@ -582,13 +587,47 @@ $("#export-structure-md").addEventListener("click", () => {
   }
 });
 
+function currentAnalysisHandoff() {
+  if (!state.analysis) throw new Error("请先完成当前转写文本的结构分析");
+  state.analysisHandoffCache = analysisHandoffForAnalysis(state.analysisHandoffCache, state.analysis);
+  return state.analysisHandoffCache.handoff;
+}
+
+$("#send-analysis-handoff").addEventListener("click", async () => {
+  if (!state.analysis) return;
+  setFeedback("#structure-message", "#structure-error");
+  const openPromise = openAnalysisHandoffSidePanel(chrome.sidePanel, chrome.windows);
+  try {
+    const handoff = currentAnalysisHandoff();
+    const queued = await enqueueAnalysisHandoff(chrome.storage?.session, handoff);
+    const opened = await openPromise;
+    const queueMessage = queued.status === "conflict"
+      ? "会话收件箱已有另一份待确认结果，未覆盖；请先在编导台处理。"
+      : queued.status === "duplicate"
+      ? "同一分析结果已在会话收件箱中，无需重复发送。"
+      : queued.status === "replaced-expired"
+      ? "已清理过期结果并发送新的分析建议。"
+      : queued.status === "replaced-invalid"
+      ? "已清理损坏的会话记录并发送新的分析建议。"
+      : "分析建议已发送到当前浏览器会话，等待编导确认。";
+    setFeedback("#structure-message", "#structure-error", {
+      status: `${queueMessage}${opened.opened ? " 编导台侧边栏已打开。" : ` ${opened.reason}`}`
+    });
+  } catch (error) {
+    const opened = await openPromise;
+    setFeedback("#structure-message", "#structure-error", {
+      error: `${error.message || "无法发送到编导台"}${opened.opened ? "；侧边栏已打开，可改用 JSON 交接包" : "；请改用 JSON 交接包"}`
+    });
+  }
+});
+
 $("#export-analysis-handoff").addEventListener("click", () => {
   if (!state.analysis) return;
   try {
-    const handoff = createAnalysisHandoff(state.analysis);
+    const handoff = currentAnalysisHandoff();
     download("qianchuan-analysis-handoff.json", JSON.stringify(handoff, null, 2));
     setFeedback("#structure-message", "#structure-error", {
-      status: "编导台交接包已导出：不含原始全文、文件名或本机路径；请回到侧边栏预览并确认填入。"
+      status: "备用 JSON 交接包已导出：不含原始全文、文件名或本机路径；可在侧边栏手动导入。"
     });
   } catch (error) {
     setFeedback("#structure-message", "#structure-error", { error: error.message || "无法生成编导台交接包" });
