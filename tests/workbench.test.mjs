@@ -9,10 +9,10 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.0.3 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.0.4 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.0\.3/);
+  assert.match(html, /V1\.0\.4/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
@@ -44,14 +44,18 @@ test("connects one four-step overview action to navigation and focus only", () =
   assert.doesNotMatch(script, /focusTarget\?\.click\(|section\?\.click\(/u);
 });
 
-test("exports a minimal validated handoff for explicit side-panel import", () => {
-  for (const id of ["export-analysis-handoff", "structure-handoff-note"]) {
+test("sends a session handoff with an honest side-panel fallback and keeps JSON backup", () => {
+  for (const id of ["send-analysis-handoff", "export-analysis-handoff", "structure-handoff-note"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /不含原始全文、文件名、本机路径或视频信息/u);
-  assert.match(script, /createAnalysisHandoff\(state\.analysis\)/u);
+  assert.match(script, /function currentAnalysisHandoff\(\)/u);
+  assert.match(script, /analysisHandoffForAnalysis\(state\.analysisHandoffCache, state\.analysis\)/u);
+  assert.match(script, /enqueueAnalysisHandoff\(chrome\.storage\?\.session, handoff\)/u);
+  assert.match(script, /openAnalysisHandoffSidePanel\(chrome\.sidePanel, chrome\.windows\)/u);
+  assert.match(script, /当前预览保持不变|已有另一份待确认结果/u);
   assert.match(script, /qianchuan-analysis-handoff\.json/u);
-  assert.match(script, /请回到侧边栏预览并确认填入/u);
+  assert.match(script, /备用 JSON 交接包已导出/u);
 });
 
 test("keeps every static workbench id selector connected", () => {

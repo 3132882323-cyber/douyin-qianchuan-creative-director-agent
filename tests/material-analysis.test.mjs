@@ -34,7 +34,7 @@ function materialManifest(overrides = {}) {
   return createMaterialProcessingManifest([ownedVideo], processingSettings(overrides), {
     manifestId: "TX-MATERIAL",
     createdAt: "2026-08-03T00:00:00.000Z",
-    creatorVersion: "1.0.3"
+    creatorVersion: "1.0.4"
   });
 }
 

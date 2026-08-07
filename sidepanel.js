@@ -58,6 +58,11 @@ import {
   validateAnalysisHandoff,
   validateAnalysisHandoffFile
 } from "./src/analysis-handoff.js";
+import {
+  ANALYSIS_HANDOFF_INBOX_KEY,
+  decideAnalysisHandoffPreview,
+  inspectAnalysisHandoffInbox
+} from "./src/analysis-handoff-inbox.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["creativeTask", "productBrief", "targetRoi", "lastAnalysis", "creativePlan", "planExportReceipt", "updateSettings", "lastUpdateCheck", "migrationNoticePending", "onboardingDismissed"];
@@ -76,6 +81,8 @@ const state = {
   planExported: false,
   planExportReceipt: null,
   analysisHandoff: null,
+  analysisHandoffSource: "",
+  pendingAnalysisHandoffEnvelope: null,
   appliedAnalysisHandoffIds: new Set(),
   onboardingDismissed: false,
   recoveryIssues: [],
@@ -427,9 +434,30 @@ function updateAnalysisHandoffApplyState() {
   $("#apply-analysis-handoff").disabled = selected.length === 0;
 }
 
-function renderAnalysisHandoffPreview(handoff) {
+function renderAnalysisHandoffInboxNotice() {
+  const envelope = state.pendingAnalysisHandoffEnvelope;
+  const panel = $("#analysis-handoff-inbox");
+  if (!envelope) {
+    panel.hidden = true;
+    return;
+  }
+  const viewing = state.analysisHandoffSource === "session" && state.analysisHandoff?.handoffId === envelope.handoff.handoffId;
+  const blockedByOtherPreview = Boolean(state.analysisHandoff) && !viewing;
+  setNodeText("#analysis-handoff-inbox-title", blockedByOtherPreview ? "另有待确认结果" : "工作台分析已收到");
+  setNodeText("#analysis-handoff-inbox-meta", `覆盖 ${envelope.handoff.summary.coveredStructures}/${envelope.handoff.summary.totalStructures} · 当前会话`);
+  setNodeText("#analysis-handoff-inbox-description", blockedByOtherPreview
+    ? "当前预览保持不变；需要时请主动切换到工作台刚发送的结果。"
+    : "只显示受限建议，尚未修改任何创作任务字段。");
+  const showButton = $("#show-analysis-handoff-inbox");
+  showButton.disabled = viewing;
+  showButton.textContent = viewing ? "正在预览" : "切换到此结果";
+  panel.hidden = false;
+}
+
+function renderAnalysisHandoffPreview(handoff, { source = "file" } = {}) {
   const candidates = analysisHandoffFillCandidates(handoff, readCreativeTaskForm());
   state.analysisHandoff = handoff;
+  state.analysisHandoffSource = source;
   setNodeText("#analysis-handoff-summary", `确定性规则 · 覆盖 ${handoff.summary.coveredStructures}/${handoff.summary.totalStructures}`);
   const container = $("#analysis-handoff-suggestions");
   container.replaceChildren();
@@ -453,15 +481,99 @@ function renderAnalysisHandoffPreview(handoff) {
   }
   $("#analysis-handoff-preview").hidden = false;
   updateAnalysisHandoffApplyState();
+  renderAnalysisHandoffInboxNotice();
 }
 
 function clearAnalysisHandoffPreview() {
   state.analysisHandoff = null;
+  state.analysisHandoffSource = "";
   $("#analysis-handoff-file").value = "";
   $("#analysis-handoff-preview").hidden = true;
   $("#analysis-handoff-suggestions").replaceChildren();
   $("#apply-analysis-handoff").disabled = true;
   setNodeText("#analysis-handoff-summary", "");
+  renderAnalysisHandoffInboxNotice();
+}
+
+function sessionStorageArea() {
+  return chrome.storage?.session || null;
+}
+
+async function removeSessionAnalysisHandoff(expectedHandoffId = "") {
+  const storage = sessionStorageArea();
+  if (!storage || typeof storage.get !== "function" || typeof storage.remove !== "function") {
+    throw new Error("浏览器会话存储不可用，无法清除待确认结果");
+  }
+  const stored = await storage.get(ANALYSIS_HANDOFF_INBOX_KEY);
+  const inspected = inspectAnalysisHandoffInbox(stored?.[ANALYSIS_HANDOFF_INBOX_KEY]);
+  if (inspected.status === "empty") return true;
+  if (inspected.status === "ready" && expectedHandoffId && inspected.envelope.handoff.handoffId !== expectedHandoffId) return false;
+  await storage.remove(ANALYSIS_HANDOFF_INBOX_KEY);
+  return true;
+}
+
+function showPendingAnalysisHandoff() {
+  const envelope = state.pendingAnalysisHandoffEnvelope;
+  if (!envelope) return false;
+  renderAnalysisHandoffPreview(envelope.handoff, { source: "session" });
+  switchView("task", { scrollTop: false });
+  focusAndReveal($("#analysis-handoff-preview"), { block: "center" });
+  return true;
+}
+
+async function handleSessionAnalysisHandoff(raw, { announce = true } = {}) {
+  const inspected = inspectAnalysisHandoffInbox(raw);
+  if (inspected.status === "empty") {
+    state.pendingAnalysisHandoffEnvelope = null;
+    if (state.analysisHandoffSource === "session") clearAnalysisHandoffPreview();
+    renderAnalysisHandoffInboxNotice();
+    return;
+  }
+  if (["invalid", "expired"].includes(inspected.status)) {
+    state.pendingAnalysisHandoffEnvelope = null;
+    if (state.analysisHandoffSource === "session") clearAnalysisHandoffPreview();
+    try {
+      const storage = sessionStorageArea();
+      if (!storage || typeof storage.remove !== "function") throw new Error("会话存储不可用");
+      await storage.remove(ANALYSIS_HANDOFF_INBOX_KEY);
+      setFeedback("#analysis-handoff-message", "#analysis-handoff-error", inspected.status === "expired"
+        ? { status: "工作台会话交接已过期并清理，请在工作台重新发送。" }
+        : { error: `损坏的工作台会话交接已清理：${inspected.error?.message || "格式无效"}` });
+    } catch {
+      setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "工作台会话交接无效，且浏览器未能清理；可继续使用 JSON 交接包。" });
+    }
+    renderAnalysisHandoffInboxNotice();
+    return;
+  }
+  const envelope = inspected.envelope;
+  if (isDuplicateAnalysisHandoff(envelope.handoff, state.appliedAnalysisHandoffIds)) {
+    await removeSessionAnalysisHandoff(envelope.handoff.handoffId);
+    if (announce) setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "重复的已应用会话交接已清理。" });
+    return;
+  }
+  state.pendingAnalysisHandoffEnvelope = envelope;
+  const previewDecision = decideAnalysisHandoffPreview(state.analysisHandoff, envelope);
+  if (previewDecision === "show") {
+    renderAnalysisHandoffPreview(envelope.handoff, { source: "session" });
+    if (announce) setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "工作台分析已收到并生成预览；尚未修改任何创作任务字段。" });
+  } else if (previewDecision === "pending") {
+    if (announce) setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "另有一份工作台分析待确认；当前预览未被覆盖。" });
+  }
+  renderAnalysisHandoffInboxNotice();
+}
+
+async function loadSessionAnalysisHandoff() {
+  const storage = sessionStorageArea();
+  if (!storage || typeof storage.get !== "function") {
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "当前浏览器不支持会话交接，请使用 JSON 交接包。" });
+    return;
+  }
+  try {
+    const stored = await storage.get(ANALYSIS_HANDOFF_INBOX_KEY);
+    await handleSessionAnalysisHandoff(stored?.[ANALYSIS_HANDOFF_INBOX_KEY], { announce: true });
+  } catch (error) {
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: `无法读取工作台会话交接：${error.message || "会话存储不可用"}；可继续使用 JSON 交接包。` });
+  }
 }
 
 $("#analysis-handoff-file").addEventListener("change", async (event) => {
@@ -475,7 +587,7 @@ $("#analysis-handoff-file").addEventListener("change", async (event) => {
     if (isDuplicateAnalysisHandoff(handoff, state.appliedAnalysisHandoffIds)) {
       throw new Error("这个交接包已在本次浏览器会话中成功应用；为避免重复填入，请导出新的分析结果");
     }
-    renderAnalysisHandoffPreview(handoff);
+    renderAnalysisHandoffPreview(handoff, { source: "file" });
     setFeedback("#analysis-handoff-message", "#analysis-handoff-error", {
       status: "交接包已在本地校验并生成预览；尚未修改任何创作任务字段。"
     });
@@ -485,6 +597,27 @@ $("#analysis-handoff-file").addEventListener("change", async (event) => {
 });
 
 $("#analysis-handoff-suggestions").addEventListener("change", updateAnalysisHandoffApplyState);
+
+$("#show-analysis-handoff-inbox").addEventListener("click", () => {
+  if (!showPendingAnalysisHandoff()) return;
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "已切换到工作台会话结果；尚未修改任何创作任务字段。" });
+});
+
+$("#discard-analysis-handoff-inbox").addEventListener("click", async () => {
+  const envelope = state.pendingAnalysisHandoffEnvelope;
+  if (!envelope) return;
+  if (!window.confirm("将清除当前浏览器会话中的待确认工作台结果，不会修改创作任务。是否继续？")) return;
+  try {
+    const removed = await removeSessionAnalysisHandoff(envelope.handoff.handoffId);
+    if (!removed) throw new Error("收件箱已出现另一份结果，未执行清除");
+    if (state.analysisHandoffSource === "session" && state.analysisHandoff?.handoffId === envelope.handoff.handoffId) clearAnalysisHandoffPreview();
+    state.pendingAnalysisHandoffEnvelope = null;
+    renderAnalysisHandoffInboxNotice();
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "会话交接结果已清除；创作任务保持不变。" });
+  } catch (error) {
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: error.message || "无法清除会话交接结果" });
+  }
+});
 
 $("#apply-analysis-handoff").addEventListener("click", async () => {
   if (!state.analysisHandoff) return;
@@ -507,21 +640,57 @@ $("#apply-analysis-handoff").addEventListener("click", async () => {
     filled += 1;
   }
   if (!filled) {
-    renderAnalysisHandoffPreview(state.analysisHandoff);
+    renderAnalysisHandoffPreview(state.analysisHandoff, { source: state.analysisHandoffSource || "file" });
     setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "所选字段当前均已有内容，未进行覆盖" });
     return;
   }
-  state.appliedAnalysisHandoffIds.add(state.analysisHandoff.handoffId);
   const saved = await saveCreativeTask({ quiet: true });
-  renderAnalysisHandoffPreview(state.analysisHandoff);
-  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", saved
-    ? { status: `已确认填入 ${filled} 个空白字段${skipped ? `，跳过 ${skipped} 个已有内容的字段` : ""}；请继续人工核对。` }
-    : { error: "建议已填入当前表单，但本地保存失败；请检查上方任务保存提示后重试" });
+  if (!saved) {
+    renderAnalysisHandoffPreview(state.analysisHandoff, { source: state.analysisHandoffSource || "file" });
+    setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: "建议仅保留在当前表单，会话交接尚未消费；请恢复浏览器存储后编辑任一任务字段触发保存，确认保存成功后再清除交接。" });
+    return;
+  }
+  const applied = state.analysisHandoff;
+  const appliedSource = state.analysisHandoffSource;
+  state.appliedAnalysisHandoffIds.add(applied.handoffId);
+  const pendingMatches = state.pendingAnalysisHandoffEnvelope?.handoff.handoffId === applied.handoffId;
+  if (appliedSource === "session" || pendingMatches) {
+    try {
+      const removed = await removeSessionAnalysisHandoff(applied.handoffId);
+      if (!removed) throw new Error("收件箱已出现另一份结果，未清除新结果");
+      state.pendingAnalysisHandoffEnvelope = null;
+      clearAnalysisHandoffPreview();
+      setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: `已确认填入 ${filled} 个空白字段${skipped ? `，跳过 ${skipped} 个已有内容的字段` : ""}；会话交接已消费，请继续人工核对。` });
+    } catch (error) {
+      renderAnalysisHandoffPreview(applied, { source: appliedSource || "file" });
+      setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: `建议已保存，但会话收件箱清理失败：${error.message || "会话存储不可用"}` });
+    }
+    return;
+  }
+  renderAnalysisHandoffPreview(applied, { source: appliedSource || "file" });
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: `已确认填入 ${filled} 个空白字段${skipped ? `，跳过 ${skipped} 个已有内容的字段` : ""}；请继续人工核对。` });
 });
 
-$("#clear-analysis-handoff").addEventListener("click", () => {
+$("#clear-analysis-handoff").addEventListener("click", async () => {
+  const handoff = state.analysisHandoff;
+  const source = state.analysisHandoffSource;
+  if (source === "session" && handoff) {
+    try {
+      const removed = await removeSessionAnalysisHandoff(handoff.handoffId);
+      if (!removed) throw new Error("收件箱已出现另一份结果，未执行清除");
+      state.pendingAnalysisHandoffEnvelope = null;
+    } catch (error) {
+      setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: error.message || "无法清除会话交接结果" });
+      return;
+    }
+  }
   clearAnalysisHandoffPreview();
-  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: "交接包预览已清除；已确认填入的任务内容保持不变。" });
+  const revealedPending = source === "file" && state.pendingAnalysisHandoffEnvelope && showPendingAnalysisHandoff();
+  setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { status: source === "session"
+    ? "会话交接预览及收件箱记录已清除；创作任务保持不变。"
+    : revealedPending
+    ? "JSON 交接包预览已清除，现已切换到工作台会话结果；创作任务保持不变。"
+    : "JSON 交接包预览已清除；已确认填入的任务内容保持不变。" });
 });
 
 function taskSuggestions() {
@@ -2235,6 +2404,7 @@ async function initializeWorkspace() {
     $("#onboarding-guide").hidden = false;
   }
   finalizeWorkspaceUi();
+  await loadSessionAnalysisHandoff();
   try {
     await maybeRunAutomaticUpdateCheck();
   } catch (error) {
@@ -2246,5 +2416,12 @@ function initialize() {
   if (!initializationPromise) initializationPromise = initializeWorkspace();
   return initializationPromise;
 }
+
+chrome.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== "session" || !Object.hasOwn(changes, ANALYSIS_HANDOFF_INBOX_KEY)) return;
+  void initialize()
+    .then(() => handleSessionAnalysisHandoff(changes[ANALYSIS_HANDOFF_INBOX_KEY]?.newValue, { announce: true }))
+    .catch((error) => setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: `无法响应工作台会话交接：${error.message || "会话存储不可用"}` }));
+});
 
 void initialize();

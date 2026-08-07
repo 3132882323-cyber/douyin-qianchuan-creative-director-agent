@@ -212,7 +212,7 @@ export function createTranscodeManifest(files, rawSettings = {}, options = {}) {
     kind: TRANSCODE_MANIFEST_KIND,
     manifestId,
     createdAt,
-    creatorVersion: String(options.creatorVersion || "1.0.3"),
+    creatorVersion: String(options.creatorVersion || "1.0.4"),
     authorization: {
       confirmed: true,
       statement: "用户确认所选文件为团队自有或已获得明确转码授权的原片。"

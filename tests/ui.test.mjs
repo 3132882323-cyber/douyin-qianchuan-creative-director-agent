@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.0.3");
+  assert.equal(manifest.version, "1.0.4");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -66,8 +66,8 @@ test("keeps narrow side panels and programmatic focus usable", () => {
   assert.match(css, /\.tag-editor \{ max-height: none;[\s\S]*overflow: visible;/u);
 });
 
-test("previews a validated workbench handoff and only fills user-selected empty fields", () => {
-  for (const id of ["analysis-handoff-file", "analysis-handoff-preview", "analysis-handoff-summary", "analysis-handoff-suggestions", "apply-analysis-handoff", "clear-analysis-handoff", "analysis-handoff-message", "analysis-handoff-error"]) {
+test("receives session handoffs without replacing a preview and only fills selected empty fields", () => {
+  for (const id of ["analysis-handoff-inbox", "show-analysis-handoff-inbox", "discard-analysis-handoff-inbox", "analysis-handoff-file", "analysis-handoff-preview", "analysis-handoff-summary", "analysis-handoff-suggestions", "apply-analysis-handoff", "clear-analysis-handoff", "analysis-handoff-message", "analysis-handoff-error"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /只会填入选中的空白字段/u);
@@ -77,8 +77,15 @@ test("previews a validated workbench handoff and only fills user-selected empty 
   assert.match(script, /isDuplicateAnalysisHandoff\(handoff, state\.appliedAnalysisHandoffIds\)/u);
   const importHandler = script.slice(script.indexOf('$("#analysis-handoff-file").addEventListener'), script.indexOf('$("#analysis-handoff-suggestions").addEventListener'));
   assert.doesNotMatch(importHandler, /appliedAnalysisHandoffIds\.add/u);
-  assert.match(script, /state\.appliedAnalysisHandoffIds\.add\(state\.analysisHandoff\.handoffId\)/u);
-  assert.match(script, /clearAnalysisHandoffPreview\(\);[\s\S]*已确认填入的任务内容保持不变/u);
+  assert.match(script, /state\.appliedAnalysisHandoffIds\.add\(applied\.handoffId\)/u);
+  assert.match(script, /ANALYSIS_HANDOFF_INBOX_KEY/u);
+  assert.match(script, /chrome\.storage\?\.onChanged\?\.addListener/u);
+  assert.match(script, /await loadSessionAnalysisHandoff\(\)/u);
+  assert.match(script, /previewDecision === "pending"[\s\S]*当前预览未被覆盖/u);
+  assert.match(script, /removeSessionAnalysisHandoff\(applied\.handoffId\)/u);
+  assert.match(script, /#clear-analysis-handoff"\)\.addEventListener\("click", async[\s\S]*removeSessionAnalysisHandoff\(handoff\.handoffId\)/u);
+  assert.match(script, /\["invalid", "expired"\][\s\S]*storage\.remove\(ANALYSIS_HANDOFF_INBOX_KEY\)/u);
+  assert.match(script, /会话交接预览及收件箱记录已清除/u);
   assert.match(script, /if \(!candidate\?\.canFill \|\| !field \|\| String\(field\.value\)\.trim\(\)\)/u);
   assert.match(script, /#apply-analysis-handoff"\)\.addEventListener\("click"/u);
   assert.match(script, /交接包已在本地校验并生成预览；尚未修改任何创作任务字段/u);

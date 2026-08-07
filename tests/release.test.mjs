@@ -21,6 +21,7 @@ const paths = {
   workbenchOverview: "../src/workbench-overview.js",
   recentWork: "../src/recent-work.js",
   analysisHandoff: "../src/analysis-handoff.js",
+  analysisHandoffInbox: "../src/analysis-handoff-inbox.js",
   readme: "../README.md",
   privacy: "../PRIVACY.md",
   changelog: "../CHANGELOG.md",
@@ -34,14 +35,14 @@ const files = Object.fromEntries(entries);
 test("keeps every user-visible V1 source version aligned", () => {
   const manifest = JSON.parse(files.manifest);
   const packageJson = JSON.parse(files.package);
-  assert.equal(manifest.version, "1.0.3");
-  assert.equal(packageJson.version, "1.0.3");
-  assert.match(files.sidepanelHtml, /V1\.0\.3/u);
-  assert.match(files.workbenchHtml, /V1\.0\.3/u);
-  assert.match(files.core, /version: "1\.0\.3"/u);
-  assert.match(files.transcode, /creatorVersion \|\| "1\.0\.3"/u);
-  assert.match(files.readme, /V1\.0\.3/u);
-  assert.match(files.changelog, /## \[1\.0\.3\]/u);
+  assert.equal(manifest.version, "1.0.4");
+  assert.equal(packageJson.version, "1.0.4");
+  assert.match(files.sidepanelHtml, /V1\.0\.4/u);
+  assert.match(files.workbenchHtml, /V1\.0\.4/u);
+  assert.match(files.core, /version: "1\.0\.4"/u);
+  assert.match(files.transcode, /creatorVersion \|\| "1\.0\.4"/u);
+  assert.match(files.readme, /V1\.0\.4/u);
+  assert.match(files.changelog, /## \[1\.0\.4\]/u);
 });
 
 test("pins a strict MV3 extension CSP without expanding permissions", () => {
@@ -62,8 +63,8 @@ test("pins a strict MV3 extension CSP without expanding permissions", () => {
 test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
-  assert.ok(checkedFiles.length >= 14);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js"]) {
+  assert.ok(checkedFiles.length >= 15);
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
 });
@@ -84,7 +85,8 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.workspaceRecovery,
     files.workbenchOverview,
     files.recentWork,
-    files.analysisHandoff
+    files.analysisHandoff,
+    files.analysisHandoffInbox
   ].join("\n");
   assert.doesNotMatch(html, /<script[^>]+src=["']https?:/iu);
   assert.doesNotMatch(html, /https?:\/\/[^"']+\.(?:js|mjs|wasm)(?:[?"'])/iu);

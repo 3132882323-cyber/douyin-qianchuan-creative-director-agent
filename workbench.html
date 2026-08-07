@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.3</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.4</p>
           <h1>素材处理与分析工作台</h1>
           <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -166,8 +166,8 @@
         <section id="structure-result" aria-label="文案结构分析结果" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
           <div id="coverage-grid" class="coverage-grid"></div>
-          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="export-analysis-handoff" type="button" class="primary" aria-describedby="structure-handoff-note">交接到编导台</button><button id="export-structure-json" type="button" class="secondary">JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
-          <p id="structure-handoff-note" class="help">交接包只包含固定结构摘要和四类短建议，不含原始全文、文件名、本机路径或视频信息；侧边栏不会自动写入，必须先预览并确认。</p>
+          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="send-analysis-handoff" type="button" class="primary" aria-describedby="structure-handoff-note">发送并打开编导台</button><button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">导出 JSON 交接包</button><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
+          <p id="structure-handoff-note" class="help">一键发送只把固定结构摘要和四类短建议暂存到当前浏览器会话，不含原始全文、文件名、本机路径或视频信息；侧边栏仍必须先预览并由你确认。浏览器无法自动打开侧边栏时，请点击扩展图标；JSON 交接包始终可作为备用。</p>
           <div id="structure-segments" class="segment-list"></div>
           <div id="structure-recommendations" class="recommendations"></div>
           <p id="structure-disclaimer" class="help"></p>
