@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.0.4");
+  assert.equal(manifest.version, "1.0.7");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);

@@ -35,14 +35,14 @@ const files = Object.fromEntries(entries);
 test("keeps every user-visible V1 source version aligned", () => {
   const manifest = JSON.parse(files.manifest);
   const packageJson = JSON.parse(files.package);
-  assert.equal(manifest.version, "1.0.4");
-  assert.equal(packageJson.version, "1.0.4");
-  assert.match(files.sidepanelHtml, /V1\.0\.4/u);
-  assert.match(files.workbenchHtml, /V1\.0\.4/u);
-  assert.match(files.core, /version: "1\.0\.4"/u);
-  assert.match(files.transcode, /creatorVersion \|\| "1\.0\.4"/u);
-  assert.match(files.readme, /V1\.0\.4/u);
-  assert.match(files.changelog, /## \[1\.0\.4\]/u);
+  assert.equal(manifest.version, "1.0.7");
+  assert.equal(packageJson.version, "1.0.7");
+  assert.match(files.sidepanelHtml, /V1\.0\.7/u);
+  assert.match(files.workbenchHtml, /V1\.0\.7/u);
+  assert.match(files.core, /version: "1\.0\.7"/u);
+  assert.match(files.transcode, /creatorVersion \|\| "1\.0\.7"/u);
+  assert.match(files.readme, /V1\.0\.7/u);
+  assert.match(files.changelog, /## \[1\.0\.7\]/u);
 });
 
 test("pins a strict MV3 extension CSP without expanding permissions", () => {

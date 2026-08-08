@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.4</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.7</p>
           <h1>素材处理与分析工作台</h1>
           <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -32,17 +32,42 @@
         <div class="overview-head">
           <div>
             <p class="eyebrow">CURRENT TASK</p>
-            <h2 id="task-overview-title">当前任务概览</h2>
-            <p id="workbench-overview-summary">先选择本地自有或已授权素材。</p>
+            <div class="overview-title-row">
+              <h2 id="task-overview-title">当前素材任务</h2>
+              <span id="workbench-flow-state" class="flow-state" data-tone="neutral">选择开始方式</span>
+            </div>
+            <p id="workbench-overview-summary">尚未选择入口 · 未选择素材 · 未导入转写文本</p>
           </div>
-          <button id="workbench-next-step" type="button" class="primary" data-target="source" aria-describedby="workbench-overview-summary">下一步：选择本地素材</button>
+          <div class="overview-action">
+            <button id="workbench-next-step" type="button" class="primary" data-action="choose-entry" aria-describedby="workbench-overview-summary workbench-next-hint" disabled>先选择一个开始方式</button>
+            <p id="workbench-next-hint">先选择“处理本地视频”或“分析已有转写”。</p>
+            <button id="workbench-paste-entry" type="button" class="overview-text-action" hidden>没有文本文件？直接粘贴转写</button>
+            <button id="reset-workbench-session" type="button" class="overview-reset-action" aria-label="开始新一轮或重置当前工作台会话" aria-describedby="workbench-overview-summary workbench-reset-note">开始新一轮 / 重置本轮</button>
+          </div>
         </div>
+        <fieldset id="workbench-entry-mode" class="entry-mode" aria-describedby="workbench-entry-note">
+          <legend>本轮从哪里开始？</legend>
+          <label>
+            <input id="workbench-entry-video" type="radio" name="workbench-entry-mode" value="video">
+            <span><strong>处理本地视频</strong><small>授权确认 → 本机任务 → 导入结果 → 转写与分析</small></span>
+          </label>
+          <label>
+            <input id="workbench-entry-transcript" type="radio" name="workbench-entry-mode" value="transcript">
+            <span><strong>分析已有转写</strong><small>直接导入或粘贴本地文本，不要求先选择视频</small></span>
+          </label>
+        </fieldset>
+        <p id="workbench-entry-note" class="entry-note">入口选择只在当前页面内生效。切换入口不会清空已选视频、任务、转写正文或分析结果。</p>
         <ol class="overview-steps" aria-label="素材处理与分析进度">
-          <li id="overview-source" class="current" aria-current="step"><span><b>01</b> 素材</span><strong id="overview-source-state">待选择</strong></li>
+          <li id="overview-source"><span><b>01</b> 素材</span><strong id="overview-source-state">待选择</strong></li>
           <li id="overview-processing"><span><b>02</b> 处理</span><strong id="overview-processing-state">待生成</strong></li>
           <li id="overview-transcription"><span><b>03</b> 转写</span><strong id="overview-transcription-state">待导入</strong></li>
           <li id="overview-structure"><span><b>04</b> 分析</span><strong id="overview-structure-state">待分析</strong></li>
         </ol>
+        <div class="overview-progress-head"><span>本轮工作流完成度</span><strong id="workbench-progress-label">0%</strong></div>
+        <div id="workbench-progress" class="overview-progress" role="progressbar" aria-label="本轮工作流完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="选择开始方式，完成 0%"><span id="workbench-progress-bar"></span></div>
+        <p id="workbench-flow-message" class="status-message compact" role="status" aria-live="polite"></p>
+        <p id="workbench-flow-error" class="error compact" role="alert"></p>
+        <p id="workbench-reset-note" class="overview-session-note">顶部主操作会继续当前页面中的真实下一步。“开始新一轮”只在二次确认后重置本页，不删除本地原文件、侧边栏或浏览器本地工作区；视频选择、处理队列和转写正文仍只在本页保留，刷新或关闭页面后不会伪装成可恢复任务。</p>
       </section>
 
       <div class="boundary" role="note">
@@ -95,7 +120,7 @@
           <article><b>2</b><strong>提取分析音频</strong><span>PCM 16-bit、16 kHz、单声道 WAV，供本地转写使用</span></article>
           <article><b>3</b><strong>导入执行结果</strong><span>逐项显示成功或失败原因，所有处理由本机 FFmpeg 完成</span></article>
         </div>
-        <button id="create-material-tasks" type="button" class="primary wide" aria-describedby="material-readiness" aria-controls="processing-queue" aria-expanded="false" disabled>一键生成“标准化 + 音频提取”本地任务</button>
+        <button id="create-material-tasks" type="button" class="secondary wide" aria-describedby="material-readiness" aria-controls="processing-queue" aria-expanded="false" disabled>生成“标准化 + 音频提取”本地任务</button>
         <p id="material-readiness" class="help">还需选择视频、确认授权并填写输入与输出目录。</p>
         <p id="processing-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="processing-error" class="error" role="alert"></p>
@@ -106,7 +131,7 @@
           <div id="processing-task-list" class="task-list"></div>
           <div class="button-row">
             <button id="copy-material-commands" type="button" class="secondary">复制受限命令</button>
-            <button id="export-material-manifest" type="button" class="primary">导出任务清单</button>
+            <button id="export-material-manifest" type="button" class="secondary">导出任务清单</button>
             <button id="download-material-worker" type="button" class="secondary">下载开源执行器</button>
             <button id="import-material-result" type="button" class="secondary">导入执行结果</button>
             <input id="material-result-file" type="file" accept=".json,application/json" hidden>
@@ -160,13 +185,13 @@
       <section id="structure" class="panel">
         <div class="section-head"><div><span>STEP 04</span><h2>规则型文案结构分析</h2></div><em id="structure-status">尚未分析</em></div>
         <p class="help">本模块只用浏览器内的确定性关键词规则标注钩子、受众、问题、核心主张、证据、场景和行动引导，不上传文本，也不预测投放效果。</p>
-        <button id="analyze-transcript" type="button" class="primary wide" aria-controls="structure-result" aria-expanded="false">分析当前转写文本</button>
+        <button id="analyze-transcript" type="button" class="secondary wide" aria-controls="structure-result" aria-expanded="false">分析当前转写文本</button>
         <p id="structure-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="structure-error" class="error" role="alert"></p>
         <section id="structure-result" aria-label="文案结构分析结果" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
           <div id="coverage-grid" class="coverage-grid"></div>
-          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="send-analysis-handoff" type="button" class="primary" aria-describedby="structure-handoff-note">发送并打开编导台</button><button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">导出 JSON 交接包</button><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
+          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="send-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">发送并打开编导台</button><button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">导出 JSON 交接包</button><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
           <p id="structure-handoff-note" class="help">一键发送只把固定结构摘要和四类短建议暂存到当前浏览器会话，不含原始全文、文件名、本机路径或视频信息；侧边栏仍必须先预览并由你确认。浏览器无法自动打开侧边栏时，请点击扩展图标；JSON 交接包始终可作为备用。</p>
           <div id="structure-segments" class="segment-list"></div>
           <div id="structure-recommendations" class="recommendations"></div>

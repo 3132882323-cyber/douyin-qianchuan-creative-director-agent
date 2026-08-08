@@ -9,10 +9,10 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.0.4 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.0.7 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.0\.4/);
+  assert.match(html, /V1\.0\.7/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
@@ -30,18 +30,86 @@ test("uses the expanded responsive canvas without a page-level 920px floor", () 
   assert.match(css, /overflow-wrap:\s*anywhere/iu);
 });
 
-test("connects one four-step overview action to navigation and focus only", () => {
-  for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-next-step", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
+test("connects one primary flow action to real state-aware operations", () => {
+  for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-flow-state", "workbench-next-step", "workbench-next-hint", "workbench-progress", "workbench-progress-label", "workbench-progress-bar", "workbench-flow-message", "workbench-flow-error", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.equal((html.match(/id="workbench-next-step"/gu) || []).length, 1);
+  assert.equal((html.match(/class="[^"]*\bprimary\b[^"]*"/gu) || []).length, 1);
   assert.match(script, /buildWorkbenchOverview/u);
-  assert.match(script, /#workbench-next-step"\)\.addEventListener\("click"/u);
+  assert.match(script, /#workbench-next-step"\)\.addEventListener\("click", async/u);
+  assert.match(script, /action\.type === "focus"/u);
+  assert.match(script, /action\.type === "open-sidepanel"/u);
+  assert.match(script, /control\.click\(\)/u);
   assert.match(script, /scrollIntoView\(/u);
   assert.match(script, /focusTarget\?\.focus\(\)/u);
   assert.match(script, /block: focusTarget \? "center" : "start"/u);
+  assert.match(script, /processingPrepared/u);
+  assert.match(script, /handoffState/u);
+  assert.match(script, /chrome\.storage\?\.onChanged\?\.addListener/u);
+  assert.match(script, /ANALYSIS_HANDOFF_INBOX_KEY/u);
   assert.doesNotMatch(script, /preventScroll/u);
-  assert.doesNotMatch(script, /focusTarget\?\.click\(|section\?\.click\(/u);
+});
+
+test("lets users choose video or existing-transcript entry without persisting the choice", () => {
+  for (const id of ["workbench-entry-mode", "workbench-entry-video", "workbench-entry-transcript", "workbench-entry-note", "workbench-paste-entry"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /id="workbench-next-step"[^>]*disabled/u);
+  assert.match(html, /id="workbench-flow-state"[^>]*>选择开始方式</u);
+  assert.doesNotMatch(html, /id="overview-source"[^>]*aria-current/u);
+  assert.match(html, /value="video"/u);
+  assert.match(html, /value="transcript"/u);
+  assert.match(html, /切换入口不会清空已选视频、任务、转写正文或分析结果/u);
+  assert.match(html, /直接粘贴转写/u);
+  assert.match(script, /entryMode: ""/u);
+  assert.match(script, /function selectEntryMode\(mode\)/u);
+  assert.match(script, /input\[name="workbench-entry-mode"\]/u);
+  assert.match(script, /moveToFlowTarget\("transcription", "transcript-text"\)/u);
+  assert.match(script, /已保留当前/u);
+  assert.match(script, /setNodeText\("#workbench-entry-note", model\.entryNotice\)/u);
+  assert.doesNotMatch(script, /storage\.(?:local|session)[^\n]*entryMode|entryMode[^\n]*storage\.(?:local|session)/iu);
+  assert.match(css, /\.entry-mode\s*\{[^}]*repeat\(2,/iu);
+  assert.match(css, /\.entry-mode,\s*\.overview-steps/iu);
+});
+
+test("resets only the current page session after an explicit second confirmation", () => {
+  for (const id of ["reset-workbench-session", "workbench-reset-note"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /id="reset-workbench-session"[^>]*class="overview-reset-action"/u);
+  assert.match(html, /id="reset-workbench-session"[^>]*aria-describedby="workbench-overview-summary workbench-reset-note"/u);
+  assert.match(html, /不删除本地原文件、侧边栏或浏览器本地工作区/u);
+  assert.match(css, /\.overview-reset-action\s*\{[^}]*background:\s*transparent/iu);
+
+  const resetStart = script.indexOf("function resetWorkbenchSession()");
+  const resetEnd = script.indexOf('$("#reset-workbench-session")', resetStart);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart);
+  const resetBlock = script.slice(resetStart, resetEnd);
+  assert.match(resetBlock, /document\.querySelectorAll\('input\[type="file"\]'\)/u);
+  assert.match(resetBlock, /state\.files = \[\]/u);
+  assert.match(resetBlock, /state\.processingManifest = null/u);
+  assert.match(resetBlock, /state\.transcriptionPlan = null/u);
+  assert.match(resetBlock, /#transcript-text"\)\.value = ""/u);
+  assert.match(resetBlock, /state\.analysis = null/u);
+  assert.match(resetBlock, /state\.handoffState = "idle"/u);
+  assert.match(resetBlock, /#processing-queue"\)\.hidden = true/u);
+  assert.match(resetBlock, /#processing-queue-status", "浏览器仅生成任务/u);
+  assert.match(resetBlock, /#structure-result"\)\.hidden = true/u);
+  assert.doesNotMatch(resetBlock, /chrome\.storage|download\(/u);
+
+  const resetHandler = script.slice(resetEnd, script.indexOf("document.querySelectorAll", resetEnd));
+  assert.match(resetHandler, /buildWorkbenchResetPrompt\(workbenchResetSnapshot\(\)\)/u);
+  assert.match(resetHandler, /if \(!window\.confirm\(resetPlan\.message\)\) return;\s*resetWorkbenchSession\(\)/u);
+});
+
+test("keeps section controls available but visually reserves primary emphasis for the flow action", () => {
+  for (const id of ["create-material-tasks", "export-material-manifest", "analyze-transcript", "send-analysis-handoff"]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*class="secondary`, "u"));
+  }
+  assert.match(html, /刷新或关闭页面后不会伪装成可恢复任务/u);
+  assert.match(css, /\.flow-state\[data-tone="attention"\]/u);
+  assert.match(css, /\.overview-progress/u);
 });
 
 test("sends a session handoff with an honest side-panel fallback and keeps JSON backup", () => {
