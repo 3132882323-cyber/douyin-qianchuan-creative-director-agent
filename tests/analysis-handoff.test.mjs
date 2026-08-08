@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ANALYSIS_HANDOFF_KIND,
+  ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION,
   ANALYSIS_HANDOFF_METHOD,
   ANALYSIS_HANDOFF_SOURCE,
   MAX_ANALYSIS_HANDOFF_BYTES,
@@ -11,6 +12,7 @@ import {
   validateAnalysisHandoff,
   validateAnalysisHandoffFile
 } from "../src/analysis-handoff.js";
+import { createCreativeRevisionDraft } from "../src/creative-revision.js";
 
 function sampleAnalysis(overrides = {}) {
   return {
@@ -50,6 +52,26 @@ function sampleAnalysis(overrides = {}) {
   };
 }
 
+function sampleRevisionAnalysis() {
+  const value = sampleAnalysis({ generatedAt: "2026-08-06T03:00:00.000Z" });
+  value.segments = value.segments.map((segment, index) => ({
+    ...segment,
+    index: index + 1,
+    source: { kind: "paragraph", cueIndex: index + 1, label: "", startMs: null, endMs: null, start: "", end: "" }
+  }));
+  return value;
+}
+
+function sampleRevisionDraft(analysis = sampleRevisionAnalysis()) {
+  return createCreativeRevisionDraft(analysis, {
+    selectedRecommendationIds: ["rev-hook"],
+    testVariables: ["hook"],
+    createdAt,
+    parentVersionId: "base-v1",
+    entropy: "handoff-test"
+  });
+}
+
 const createdAt = "2026-08-06T03:04:05.000Z";
 
 test("builds a minimal fixed-schema handoff without raw transcript or file metadata", () => {
@@ -64,6 +86,33 @@ test("builds a minimal fixed-schema handoff without raw transcript or file metad
   const serialized = JSON.stringify(handoff);
   assert.doesNotMatch(serialized, /PRIVATE-RAW-CONTENT|"sourceName"|"file"|"video"|"path"/iu);
   assert.deepEqual(validateAnalysisHandoff(handoff), handoff);
+});
+
+test("adds a strictly validated revision draft only in the backwards-compatible V2 package", () => {
+  const analysis = sampleRevisionAnalysis();
+  const revisionDraft = sampleRevisionDraft(analysis);
+  const handoff = createAnalysisHandoff(analysis, { createdAt, revisionDraft });
+  assert.equal(handoff.schemaVersion, ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION);
+  assert.equal(handoff.revisionDraft.testId, revisionDraft.testId);
+  assert.equal(handoff.revisionDraft.primaryVariable.id, "hook");
+  assert.deepEqual(validateAnalysisHandoff(handoff), handoff);
+  assert.equal(createAnalysisHandoff(analysis, { createdAt }).schemaVersion, 1, "legacy creation remains V1");
+});
+
+test("V2 rejects mismatched analysis references and unsafe revision fields", () => {
+  const analysis = sampleRevisionAnalysis();
+  const revisionDraft = sampleRevisionDraft(analysis);
+  const otherAnalysis = sampleRevisionAnalysis();
+  otherAnalysis.segments[0].content += "另一份分析";
+  assert.throws(() => createAnalysisHandoff(otherAnalysis, { createdAt, revisionDraft }), /与当前结构分析不一致/u);
+
+  const handoff = createAnalysisHandoff(analysis, { createdAt, revisionDraft });
+  const unknown = structuredClone(handoff);
+  unknown.revisionDraft.hiddenPath = "secret";
+  assert.throws(() => validateAnalysisHandoff(unknown), /不受支持字段/u);
+  const active = structuredClone(handoff);
+  active.revisionDraft.hook = '<script>alert(1)</script>';
+  assert.throws(() => validateAnalysisHandoff(active), /活动内容/u);
 });
 
 test("rejects the wrong schema, kind, source or analysis method", () => {

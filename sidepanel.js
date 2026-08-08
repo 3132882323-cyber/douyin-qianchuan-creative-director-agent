@@ -58,6 +58,7 @@ import {
   validateAnalysisHandoff,
   validateAnalysisHandoffFile
 } from "./src/analysis-handoff.js";
+import { CREATIVE_REVISION_EDITABLE_FIELDS } from "./src/creative-revision.js";
 import {
   ANALYSIS_HANDOFF_INBOX_KEY,
   decideAnalysisHandoffPreview,
@@ -429,6 +430,20 @@ const HANDOFF_FIELD_LABELS = Object.freeze({
   evidence: "可用证据"
 });
 
+const HANDOFF_REVISION_FIELD_LABELS = Object.freeze({
+  problemSummary: "问题摘要",
+  testHypothesis: "测试假设",
+  fixedElements: "保持不变项",
+  hook: "前三秒钩子",
+  spokenScript: "口播稿",
+  storyboard: "分镜",
+  supplementalShots: "补拍镜头",
+  subtitleHighlights: "字幕重点",
+  editingRhythm: "剪辑节奏",
+  successMetrics: "成功指标",
+  stopCondition: "停止条件"
+});
+
 function updateAnalysisHandoffApplyState() {
   const selected = [...document.querySelectorAll("#analysis-handoff-suggestions input[data-handoff-field]:checked:not(:disabled)")];
   $("#apply-analysis-handoff").disabled = selected.length === 0;
@@ -443,14 +458,54 @@ function renderAnalysisHandoffInboxNotice() {
   }
   const viewing = state.analysisHandoffSource === "session" && state.analysisHandoff?.handoffId === envelope.handoff.handoffId;
   const blockedByOtherPreview = Boolean(state.analysisHandoff) && !viewing;
-  setNodeText("#analysis-handoff-inbox-title", blockedByOtherPreview ? "另有待确认结果" : "工作台分析已收到");
-  setNodeText("#analysis-handoff-inbox-meta", `覆盖 ${envelope.handoff.summary.coveredStructures}/${envelope.handoff.summary.totalStructures} · 当前会话`);
+  const revisionDraft = envelope.handoff.revisionDraft || null;
+  setNodeText("#analysis-handoff-inbox-title", blockedByOtherPreview ? "另有待确认结果" : revisionDraft ? "工作台可拍草稿已收到" : "工作台分析已收到");
+  setNodeText("#analysis-handoff-inbox-meta", revisionDraft
+    ? `${revisionDraft.testId} · 当前会话`
+    : `覆盖 ${envelope.handoff.summary.coveredStructures}/${envelope.handoff.summary.totalStructures} · 当前会话`);
   setNodeText("#analysis-handoff-inbox-description", blockedByOtherPreview
     ? "当前预览保持不变；需要时请主动切换到工作台刚发送的结果。"
-    : "只显示受限建议，尚未修改任何创作任务字段。");
+    : revisionDraft
+      ? "可拍任务将以只读方式显示；尚未修改任何任务字段或创作方案。"
+      : "只显示受限建议，尚未修改任何创作任务字段。");
   const showButton = $("#show-analysis-handoff-inbox");
   showButton.disabled = viewing;
   showButton.textContent = viewing ? "正在预览" : "切换到此结果";
+  panel.hidden = false;
+}
+
+function renderAnalysisHandoffRevision(revisionDraft) {
+  const panel = $("#analysis-handoff-revision");
+  if (!revisionDraft) {
+    panel.hidden = true;
+    $("#analysis-handoff-revision-evidence").replaceChildren();
+    $("#analysis-handoff-revision-fields").replaceChildren();
+    setNodeText("#analysis-handoff-revision-id", "—");
+    setNodeText("#analysis-handoff-revision-parent", "—");
+    setNodeText("#analysis-handoff-revision-source", "—");
+    setNodeText("#analysis-handoff-revision-variable", "单变量");
+    setNodeText("#analysis-handoff-revision-notice", "");
+    return;
+  }
+  setNodeText("#analysis-handoff-revision-id", revisionDraft.testId);
+  setNodeText("#analysis-handoff-revision-parent", revisionDraft.parentVersionId || "无（首版）");
+  setNodeText("#analysis-handoff-revision-source", revisionDraft.sourceAnalysisId);
+  setNodeText("#analysis-handoff-revision-variable", `唯一变量 · ${revisionDraft.primaryVariable.label}`);
+  setNodeText("#analysis-handoff-revision-notice", `${revisionDraft.notice} 此处仅预览，不会写入或覆盖创作方案。`);
+  const evidence = $("#analysis-handoff-revision-evidence");
+  evidence.replaceChildren();
+  for (const item of revisionDraft.evidence) {
+    const card = element("article");
+    card.append(element("strong", "", item.sourceLabel), element("p", "", item.excerpt));
+    evidence.append(card);
+  }
+  const fields = $("#analysis-handoff-revision-fields");
+  fields.replaceChildren();
+  for (const field of CREATIVE_REVISION_EDITABLE_FIELDS) {
+    const card = element("article");
+    card.append(element("strong", "", HANDOFF_REVISION_FIELD_LABELS[field]), element("p", "", revisionDraft[field]));
+    fields.append(card);
+  }
   panel.hidden = false;
 }
 
@@ -458,7 +513,9 @@ function renderAnalysisHandoffPreview(handoff, { source = "file" } = {}) {
   const candidates = analysisHandoffFillCandidates(handoff, readCreativeTaskForm());
   state.analysisHandoff = handoff;
   state.analysisHandoffSource = source;
-  setNodeText("#analysis-handoff-summary", `确定性规则 · 覆盖 ${handoff.summary.coveredStructures}/${handoff.summary.totalStructures}`);
+  setNodeText("#analysis-handoff-summary", handoff.revisionDraft
+    ? `V2 可拍草稿 · ${handoff.revisionDraft.testId}`
+    : `确定性规则 · 覆盖 ${handoff.summary.coveredStructures}/${handoff.summary.totalStructures}`);
   const container = $("#analysis-handoff-suggestions");
   container.replaceChildren();
   for (const candidate of candidates) {
@@ -479,6 +536,7 @@ function renderAnalysisHandoffPreview(handoff, { source = "file" } = {}) {
     row.append(checkbox, copy);
     container.append(row);
   }
+  renderAnalysisHandoffRevision(handoff.revisionDraft || null);
   $("#analysis-handoff-preview").hidden = false;
   updateAnalysisHandoffApplyState();
   renderAnalysisHandoffInboxNotice();
@@ -490,6 +548,7 @@ function clearAnalysisHandoffPreview() {
   $("#analysis-handoff-file").value = "";
   $("#analysis-handoff-preview").hidden = true;
   $("#analysis-handoff-suggestions").replaceChildren();
+  renderAnalysisHandoffRevision(null);
   $("#apply-analysis-handoff").disabled = true;
   setNodeText("#analysis-handoff-summary", "");
   renderAnalysisHandoffInboxNotice();

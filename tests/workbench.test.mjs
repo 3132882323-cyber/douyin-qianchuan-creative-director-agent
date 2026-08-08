@@ -9,10 +9,10 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.0.7 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.1.0 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.0\.7/);
+  assert.match(html, /V1\.1\.0/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
@@ -25,6 +25,7 @@ test("uses the expanded responsive canvas without a page-level 920px floor", () 
   assert.doesNotMatch(css, /min-width:\s*920px/iu);
   assert.match(css, /@media\s*\(max-width:\s*1100px\)/iu);
   assert.match(css, /@media\s*\(max-width:\s*720px\)/iu);
+  assert.match(css, /@media\s*\(max-width:\s*400px\)/iu);
   assert.match(css, /\.source-fields\s*\{[^}]*repeat\(3,\s*minmax\(0,\s*1fr\)\)/iu);
   assert.match(css, /\.segment-list\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/iu);
   assert.match(css, /overflow-wrap:\s*anywhere/iu);
@@ -92,6 +93,8 @@ test("resets only the current page session after an explicit second confirmation
   assert.match(resetBlock, /state\.transcriptionPlan = null/u);
   assert.match(resetBlock, /#transcript-text"\)\.value = ""/u);
   assert.match(resetBlock, /state\.analysis = null/u);
+  assert.match(resetBlock, /state\.revisionDraft = null/u);
+  assert.match(resetBlock, /#confirm-revision-draft"\)\.checked = false/u);
   assert.match(resetBlock, /state\.handoffState = "idle"/u);
   assert.match(resetBlock, /#processing-queue"\)\.hidden = true/u);
   assert.match(resetBlock, /#processing-queue-status", "浏览器仅生成任务/u);
@@ -112,18 +115,40 @@ test("keeps section controls available but visually reserves primary emphasis fo
   assert.match(css, /\.overview-progress/u);
 });
 
-test("sends a session handoff with an honest side-panel fallback and keeps JSON backup", () => {
+test("sends a confirmed V2 session handoff with an honest side-panel fallback and keeps JSON backup", () => {
   for (const id of ["send-analysis-handoff", "export-analysis-handoff", "structure-handoff-note"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /不含原始全文、文件名、本机路径或视频信息/u);
   assert.match(script, /function currentAnalysisHandoff\(\)/u);
-  assert.match(script, /analysisHandoffForAnalysis\(state\.analysisHandoffCache, state\.analysis\)/u);
+  assert.match(script, /if \(!state\.revisionConfirmed\) throw new Error/u);
+  assert.match(script, /analysisHandoffForAnalysis\(state\.analysisHandoffCache, state\.analysis, \{ revisionDraft \}\)/u);
   assert.match(script, /enqueueAnalysisHandoff\(chrome\.storage\?\.session, handoff\)/u);
   assert.match(script, /openAnalysisHandoffSidePanel\(chrome\.sidePanel, chrome\.windows\)/u);
   assert.match(script, /当前预览保持不变|已有另一份待确认结果/u);
   assert.match(script, /qianchuan-analysis-handoff\.json/u);
-  assert.match(script, /备用 JSON 交接包已导出/u);
+  assert.match(script, /备用 V2 JSON 交接包已导出/u);
+});
+
+test("connects timed-source analysis to a single-variable editable revision draft", () => {
+  for (const id of [
+    "revision-recommendations", "revision-parent-version", "generate-revision-draft", "revision-draft",
+    "revision-test-id", "revision-source-analysis-id", "revision-primary-variable", "revision-evidence",
+    "confirm-revision-draft", "export-revision-json", "export-revision-md"
+  ]) assert.match(html, new RegExp(`id="${id}"`, "u"));
+  assert.equal((html.match(/data-revision-field="[a-zA-Z]+"/gu) || []).length, 11);
+  assert.match(html, /每份草稿只允许一个主要测试变量|所选建议就是本草稿唯一/u);
+  assert.match(html, /生成逻辑是本地确定性模板，不预测投放效果/u);
+  assert.match(script, /parseTranscriptDocument\(await file\.text\(\), \{ name: file\.name \}\)/u);
+  assert.match(script, /transcriptDocumentMatchesText\(state\.transcriptDocument, event\.target\.value\)/u);
+  assert.match(script, /旧时间码或段落映射已失效/u);
+  assert.match(script, /revisionRecommendationsForAnalysis\(result\)/u);
+  assert.match(script, /createCreativeRevisionDraft\(state\.analysis/u);
+  assert.match(script, /testVariables: \[recommendation\.variableId\]/u);
+  assert.match(script, /#confirm-revision-draft"\)\.addEventListener\("change"/u);
+  assert.match(script, /setRevisionConfirmation\(false\)/u);
+  assert.match(script, /creativeRevisionWithEdits/u);
+  assert.match(css, /\.revision-fields\s*\{[^}]*repeat\(2,/iu);
 });
 
 test("keeps every static workbench id selector connected", () => {

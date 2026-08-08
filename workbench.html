@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.0.7</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.1.0</p>
           <h1>素材处理与分析工作台</h1>
           <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -191,11 +191,55 @@
         <section id="structure-result" aria-label="文案结构分析结果" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
           <div id="coverage-grid" class="coverage-grid"></div>
-          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="send-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">发送并打开编导台</button><button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note">导出 JSON 交接包</button><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">Markdown</button></div></div>
-          <p id="structure-handoff-note" class="help">一键发送只把固定结构摘要和四类短建议暂存到当前浏览器会话，不含原始全文、文件名、本机路径或视频信息；侧边栏仍必须先预览并由你确认。浏览器无法自动打开侧边栏时，请点击扩展图标；JSON 交接包始终可作为备用。</p>
+          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">分析 Markdown</button></div></div>
           <div id="structure-segments" class="segment-list"></div>
+          <div class="result-head"><h3>规则提示</h3></div>
           <div id="structure-recommendations" class="recommendations"></div>
           <p id="structure-disclaimer" class="help"></p>
+
+          <section class="revision-builder" aria-labelledby="revision-builder-title">
+            <div class="result-head"><div><h3 id="revision-builder-title">生成下一版可拍任务</h3><p class="help">从分析证据中选择一项改进建议。所选建议就是本草稿唯一的主要测试变量；其他要素保持不变。</p></div></div>
+            <fieldset id="revision-recommendations" class="revision-recommendations" tabindex="-1" aria-describedby="revision-selection-help revision-selection-error">
+              <legend>选择一项改进建议（必选）</legend>
+            </fieldset>
+            <p id="revision-selection-help" class="help">建议会显示对应的时间段或文本段落来源；生成逻辑是本地确定性模板，不预测投放效果。</p>
+            <p id="revision-selection-message" class="status-message" role="status" aria-live="polite"></p>
+            <p id="revision-selection-error" class="error" role="alert"></p>
+            <div class="revision-setup">
+              <label>父版本编号（可选）<input id="revision-parent-version" type="text" maxlength="80" placeholder="例如 base-v3，用于本地版本追踪"></label>
+              <button id="generate-revision-draft" type="button" class="secondary" disabled>生成单变量可拍草稿</button>
+            </div>
+
+            <section id="revision-draft" class="revision-draft" aria-labelledby="revision-draft-title" hidden>
+              <div class="revision-draft-head">
+                <div><p class="eyebrow">LOCAL DETERMINISTIC DRAFT</p><h3 id="revision-draft-title">下一版可拍任务草稿</h3></div>
+                <dl class="revision-meta"><div><dt>测试编号</dt><dd id="revision-test-id">—</dd></div><div><dt>来源分析</dt><dd id="revision-source-analysis-id">—</dd></div><div><dt>唯一变量</dt><dd id="revision-primary-variable">—</dd></div></dl>
+              </div>
+              <div id="revision-evidence" class="revision-evidence" aria-label="分析证据引用"></div>
+              <div class="revision-fields">
+                <label>问题摘要<textarea data-revision-field="problemSummary" rows="3" maxlength="800"></textarea></label>
+                <label>测试假设<textarea data-revision-field="testHypothesis" rows="3" maxlength="1000"></textarea></label>
+                <label>保持不变项<textarea data-revision-field="fixedElements" rows="3" maxlength="1000"></textarea></label>
+                <label>前三秒钩子<textarea data-revision-field="hook" rows="3" maxlength="600"></textarea></label>
+                <label class="revision-field-wide">口播稿<textarea data-revision-field="spokenScript" rows="9" maxlength="5000"></textarea></label>
+                <label>分镜<textarea data-revision-field="storyboard" rows="7" maxlength="4000"></textarea></label>
+                <label>补拍镜头<textarea data-revision-field="supplementalShots" rows="5" maxlength="2000"></textarea></label>
+                <label>字幕重点<textarea data-revision-field="subtitleHighlights" rows="4" maxlength="1200"></textarea></label>
+                <label>剪辑节奏<textarea data-revision-field="editingRhythm" rows="4" maxlength="1600"></textarea></label>
+                <label>成功指标<textarea data-revision-field="successMetrics" rows="4" maxlength="1600"></textarea></label>
+                <label>停止条件<textarea data-revision-field="stopCondition" rows="4" maxlength="1600"></textarea></label>
+              </div>
+              <p id="revision-notice" class="boundary-inline"></p>
+              <label class="auth-check revision-confirm"><input id="confirm-revision-draft" type="checkbox" aria-describedby="structure-handoff-note"><span><strong>我已逐项核对并确认发送这份草稿</strong><small>确认仅针对当前编辑内容；任何再次编辑都会自动取消确认。</small></span></label>
+              <div class="revision-actions">
+                <button id="send-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note" disabled>发送草稿并打开编导台</button>
+                <button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note" disabled>导出 V2 JSON 交接包</button>
+                <button id="export-revision-json" type="button" class="secondary">导出草稿 JSON</button>
+                <button id="export-revision-md" type="button" class="secondary">导出草稿 Markdown</button>
+              </div>
+              <p id="structure-handoff-note" class="help">只有明确确认后才可发送。V2 交接只包含固定结构摘要、四类短建议与白名单草稿，不含原始全文、文件名、本机路径或视频信息；侧边栏只预览草稿，不会自动覆盖已有字段或创作方案。JSON 始终可作备用。</p>
+            </section>
+          </section>
         </section>
       </section>
     </main>

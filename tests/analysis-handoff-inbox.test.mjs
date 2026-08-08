@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAnalysisHandoff } from "../src/analysis-handoff.js";
+import { createCreativeRevisionDraft } from "../src/creative-revision.js";
 import {
   ANALYSIS_HANDOFF_INBOX_KEY,
   ANALYSIS_HANDOFF_INBOX_KIND,
@@ -38,6 +39,26 @@ function handoff(offset = 0) {
   return createAnalysisHandoff(value, { createdAt });
 }
 
+function revisionAnalysis() {
+  const value = analysis();
+  value.generatedAt = "2026-08-07T01:59:00.000Z";
+  value.segments = value.segments.map((segment, index) => ({
+    ...segment,
+    index: index + 1,
+    source: { kind: "paragraph", cueIndex: index + 1, label: "", startMs: null, endMs: null, start: "", end: "" }
+  }));
+  return value;
+}
+
+function revisionDraft(value) {
+  return createCreativeRevisionDraft(value, {
+    selectedRecommendationIds: ["rev-hook"],
+    testVariables: ["hook"],
+    createdAt,
+    entropy: "inbox-test"
+  });
+}
+
 function memoryStorage(initial = {}) {
   const data = structuredClone(initial);
   return {
@@ -65,6 +86,34 @@ test("reuses one handoff id for the same analysis and creates a new one after an
   changedAnalysis.segments[0].content += "新分析";
   const changed = analysisHandoffForAnalysis(repeated, changedAnalysis, { createdAt: "2026-08-07T02:01:00.000Z" });
   assert.notEqual(changed.handoff.handoffId, first.handoff.handoffId);
+});
+
+test("caches V2 only for the same analysis and same draft identity", () => {
+  const value = revisionAnalysis();
+  const draft = revisionDraft(value);
+  const first = analysisHandoffForAnalysis(null, value, { createdAt, revisionDraft: draft });
+  const repeated = analysisHandoffForAnalysis(first, value, { createdAt: "2026-08-07T02:01:00.000Z", revisionDraft: draft });
+  assert.equal(first.handoff.schemaVersion, 2);
+  assert.equal(repeated.handoff.handoffId, first.handoff.handoffId);
+  const editedDraft = structuredClone(draft);
+  editedDraft.hook = "仅修改后的新开场";
+  const changed = analysisHandoffForAnalysis(repeated, value, { createdAt: "2026-08-07T02:01:00.000Z", revisionDraft: editedDraft });
+  assert.notEqual(changed.handoff.handoffId, first.handoff.handoffId);
+});
+
+test("V2 keeps the same single-slot idempotency, conflict and expiry behavior", () => {
+  const value = revisionAnalysis();
+  const draft = revisionDraft(value);
+  const firstHandoff = createAnalysisHandoff(value, { createdAt, revisionDraft: draft });
+  const editedDraft = structuredClone(draft);
+  editedDraft.hook = "另一版前三秒开场";
+  const secondHandoff = createAnalysisHandoff(value, { createdAt, revisionDraft: editedDraft });
+  const first = createAnalysisHandoffEnvelope(firstHandoff, { queuedAt: createdAt });
+  const second = createAnalysisHandoffEnvelope(secondHandoff, { queuedAt: createdAt });
+  const now = Date.parse(createdAt);
+  assert.equal(resolveAnalysisHandoffInbox(first, first, { now }).status, "duplicate");
+  assert.equal(resolveAnalysisHandoffInbox(first, second, { now }).status, "conflict");
+  assert.equal(inspectAnalysisHandoffInbox(first, { now: now + ANALYSIS_HANDOFF_INBOX_TTL_MS }).status, "expired");
 });
 
 test("rejects unknown envelope fields, invalid source, oversize and invalid time", () => {

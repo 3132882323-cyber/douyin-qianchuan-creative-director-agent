@@ -17,6 +17,8 @@ export function buildWorkbenchResetPrompt({
   transcriptLength = 0,
   hasAnalysis = false,
   analysisPreserved = false,
+  hasRevisionDraft = false,
+  revisionPreserved = false,
   handoffState = "idle",
   hasSetupValues = false,
   hasFeedback = false
@@ -27,19 +29,22 @@ export function buildWorkbenchResetPrompt({
   const characters = safeCount(transcriptLength);
   const analysis = Boolean(hasAnalysis);
   const hasHandoffState = handoffState !== "idle";
+  const revision = Boolean(hasRevisionDraft);
   const hasWork = Boolean(
-    entryMode || files || processingTasks || transcriptionTasks || characters || analysis || hasHandoffState || hasSetupValues || hasFeedback
+    entryMode || files || processingTasks || transcriptionTasks || characters || analysis || revision || hasHandoffState || hasSetupValues || hasFeedback
   );
   const atRisk = [];
   if (processingTasks && !processingExported) atRisk.push("尚未导出的处理任务");
   if (transcriptionTasks && !transcriptionExported) atRisk.push("尚未导出的转写任务");
   if (analysis && !analysisPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功发送的分析结果");
+  if (revision && !revisionPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功交接的可拍任务草稿");
   const currentItems = [];
   if (files) currentItems.push(`${files} 个视频选择`);
   if (processingTasks) currentItems.push(`${processingTasks} 项处理任务`);
   if (transcriptionTasks) currentItems.push(`${transcriptionTasks} 项转写任务`);
   if (characters) currentItems.push(`${characters.toLocaleString("zh-CN")} 字符正文`);
   if (analysis) currentItems.push("结构分析与本页交接状态");
+  if (revision) currentItems.push("下一版可拍任务草稿");
   if (hasSetupValues) currentItems.push("本页路径、授权与引擎参数");
 
   return {
@@ -64,6 +69,9 @@ export function buildWorkbenchOverview({
   processingPrepared = false,
   transcriptLength = 0,
   analysis = null,
+  selectedRecommendationCount = 0,
+  revisionDraft = null,
+  revisionConfirmed = false,
   handoffState = "idle"
 } = {}) {
   const files = safeCount(filesCount);
@@ -77,9 +85,12 @@ export function buildWorkbenchOverview({
   const processingComplete = hasProcessing && tasks > 0 && completed === tasks;
   const processingAttention = hasProcessing && (failed > 0 || skipped > 0);
   const hasAnalysis = Boolean(analysis);
-  const handoffComplete = hasAnalysis && handoffState === "sent";
-  const handoffConflict = hasAnalysis && handoffState === "conflict";
-  const handoffFailed = hasAnalysis && handoffState === "failed";
+  const selectedImprovements = safeCount(selectedRecommendationCount);
+  const hasRevisionDraft = Boolean(revisionDraft);
+  const confirmedRevision = hasRevisionDraft && Boolean(revisionConfirmed);
+  const handoffComplete = confirmedRevision && handoffState === "sent";
+  const handoffConflict = confirmedRevision && handoffState === "conflict";
+  const handoffFailed = confirmedRevision && handoffState === "failed";
   const selectedEntryMode = ["video", "transcript"].includes(entryMode) ? entryMode : "";
   const effectiveEntryMode = selectedEntryMode || (files || hasProcessing ? "video" : "");
   let entryNotice = "入口选择只在当前页面内生效。切换入口不会清空已选视频、任务、转写正文或分析结果。";
@@ -127,11 +138,15 @@ export function buildWorkbenchOverview({
       text: characters ? `${characters.toLocaleString("zh-CN")} 字符` : "待导入"
     },
     structure: {
-      status: handoffConflict || handoffFailed ? "attention" : hasAnalysis ? "complete" : current === "structure" ? "current" : "pending",
+      status: handoffConflict || handoffFailed ? "attention" : handoffComplete ? "complete" : current === "structure" ? "current" : "pending",
       text: handoffComplete
-        ? "已发送编导台"
+        ? "可拍草稿已发送"
         : handoffConflict
           ? "待处理收件箱冲突"
+          : hasRevisionDraft
+            ? confirmedRevision ? "草稿已确认 · 待发送" : "草稿待人工确认"
+          : selectedImprovements
+            ? `已选 ${selectedImprovements} 项 · 待生成草稿`
           : hasAnalysis
             ? `覆盖 ${safeCount(analysis.coveredStructures)}/${safeCount(analysis.totalStructures)}`
             : "待分析"
@@ -160,7 +175,7 @@ export function buildWorkbenchOverview({
       label: "本轮已交接",
       tone: "success",
       progress: 100,
-      guidance: "受限分析摘要已进入当前浏览器会话；请在侧边栏预览并确认需要填入的空白字段。"
+      guidance: "已确认的下一版可拍任务草稿进入当前浏览器会话；侧边栏只预览草稿，旧版四字段仍只在用户确认时填入空白项。"
     };
     next = primaryAction("open-sidepanel", "structure", "", "打开编导台查看结果", "send-analysis-handoff");
   } else if (handoffConflict) {
@@ -172,17 +187,44 @@ export function buildWorkbenchOverview({
       guidance: "编导台已有另一份待确认结果，本次没有覆盖；先处理收件箱后再发送。"
     };
     next = primaryAction("open-sidepanel", "structure", "", "打开编导台处理待确认结果", "send-analysis-handoff");
-  } else if (hasAnalysis) {
+  } else if (hasRevisionDraft && !confirmedRevision) {
+    phase = {
+      id: "revision-review",
+      label: "草稿待确认",
+      tone: "active",
+      progress: 95,
+      guidance: "逐项编辑并核对事实、证据、合规表达与指标；明确勾选确认前不会发送到编导台。"
+    };
+    next = primaryAction("focus", "structure", "", "下一步：确认可拍任务草稿", "confirm-revision-draft");
+  } else if (hasRevisionDraft) {
     phase = {
       id: "handoff",
       label: handoffFailed ? "交接失败" : "等待交接",
       tone: handoffFailed ? "attention" : "active",
-      progress: 90,
+      progress: 97,
       guidance: handoffFailed
-        ? "分析结果仍保留在本页；可重试发送，或导出 JSON 交接包。"
-        : "结构分析已完成；发送前只会打包受限摘要，不包含原始全文、文件名或本机路径。"
+        ? "已确认草稿仍保留在本页；可重试发送，或导出 JSON 交接包。"
+        : "草稿已由你明确确认；发送内容受固定白名单和大小限制，不包含原始全文、文件名或本机路径。"
     };
-    next = primaryAction("activate", "structure", "send-analysis-handoff", handoffFailed ? "重试：发送到编导台" : "完成：发送到编导台");
+    next = primaryAction("activate", "structure", "send-analysis-handoff", handoffFailed ? "重试：发送可拍草稿" : "完成：发送可拍草稿");
+  } else if (hasAnalysis && selectedImprovements) {
+    phase = {
+      id: "revision-create",
+      label: "等待生成草稿",
+      tone: "active",
+      progress: 90,
+      guidance: "已选择一项改进建议；下一步只围绕这一主要变量生成确定性、可编辑的拍摄草稿。"
+    };
+    next = primaryAction("activate", "structure", "generate-revision-draft", "下一步：生成单变量可拍草稿");
+  } else if (hasAnalysis) {
+    phase = {
+      id: "revision-select",
+      label: "等待选择改进项",
+      tone: "active",
+      progress: 85,
+      guidance: "结构分析已完成；请至少选择一项改进建议。每份草稿只允许一个主要测试变量。"
+    };
+    next = primaryAction("focus", "structure", "", "下一步：选择一项改进建议", "revision-recommendations");
   } else if (characters) {
     phase = {
       id: "analysis",
@@ -290,7 +332,8 @@ export function buildWorkbenchOverview({
       files ? `${files} 个素材` : "未选择素材",
       hasProcessing ? `${tasks} 项处理任务` : "未生成处理任务",
       characters ? `${characters.toLocaleString("zh-CN")} 字符文本` : "未导入转写文本",
-      hasAnalysis ? `结构覆盖 ${safeCount(analysis.structureCoveragePercent)}%` : "未完成结构分析"
+      hasAnalysis ? `结构覆盖 ${safeCount(analysis.structureCoveragePercent)}%` : "未完成结构分析",
+      hasRevisionDraft ? `草稿 ${revisionDraft.testId || "待确认"}` : "未生成可拍草稿"
     ].join(" · ")
   };
 }

@@ -137,10 +137,19 @@ test("turns the single primary action into the real next operation", () => {
     transcriptLength: 1280,
     analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 }
   });
-  assert.equal(analyzed.next.control, "send-analysis-handoff");
-  assert.equal(analyzed.next.label, "完成：发送到编导台");
-  assert.equal(analyzed.phase.progress, 90);
+  assert.equal(analyzed.next.type, "focus");
+  assert.equal(analyzed.next.focus, "revision-recommendations");
+  assert.equal(analyzed.next.label, "下一步：选择一项改进建议");
+  assert.equal(analyzed.phase.progress, 85);
   assert.match(analyzed.summary, /结构覆盖 86%/u);
+
+  const selected = buildWorkbenchOverview({
+    transcriptLength: 1280,
+    analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 },
+    selectedRecommendationCount: 1
+  });
+  assert.equal(selected.next.control, "generate-revision-draft");
+  assert.equal(selected.next.label, "下一步：生成单变量可拍草稿");
 });
 
 test("flags failed or skipped processing and retains a retry action", () => {
@@ -159,22 +168,42 @@ test("flags failed or skipped processing and retains a retry action", () => {
 
 test("treats a successful handoff as complete and a conflict as recoverable", () => {
   const analysis = { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 };
-  const sent = buildWorkbenchOverview({ transcriptLength: 1280, analysis, handoffState: "sent" });
+  const revisionDraft = { testId: "QC-LOCAL-1" };
+  const waitingConfirmation = buildWorkbenchOverview({ transcriptLength: 1280, analysis, revisionDraft });
+  assert.equal(waitingConfirmation.phase.id, "revision-review");
+  assert.equal(waitingConfirmation.next.focus, "confirm-revision-draft");
+
+  const confirmed = buildWorkbenchOverview({ transcriptLength: 1280, analysis, revisionDraft, revisionConfirmed: true });
+  assert.equal(confirmed.next.control, "send-analysis-handoff");
+  assert.equal(confirmed.next.label, "完成：发送可拍草稿");
+
+  const sent = buildWorkbenchOverview({ transcriptLength: 1280, analysis, revisionDraft, revisionConfirmed: true, handoffState: "sent" });
   assert.equal(sent.phase.id, "complete");
   assert.equal(sent.phase.progress, 100);
   assert.equal(sent.next.type, "open-sidepanel");
   assert.equal(sent.next.label, "打开编导台查看结果");
   assert.equal(sent.current, null);
 
-  const conflict = buildWorkbenchOverview({ transcriptLength: 1280, analysis, handoffState: "conflict" });
+  const conflict = buildWorkbenchOverview({ transcriptLength: 1280, analysis, revisionDraft, revisionConfirmed: true, handoffState: "conflict" });
   assert.equal(conflict.phase.tone, "attention");
   assert.equal(conflict.steps.structure.status, "attention");
   assert.equal(conflict.next.type, "open-sidepanel");
   assert.match(conflict.phase.guidance, /没有覆盖/u);
 
-  const failed = buildWorkbenchOverview({ transcriptLength: 1280, analysis, handoffState: "failed" });
+  const failed = buildWorkbenchOverview({ transcriptLength: 1280, analysis, revisionDraft, revisionConfirmed: true, handoffState: "failed" });
   assert.equal(failed.next.control, "send-analysis-handoff");
-  assert.equal(failed.next.label, "重试：发送到编导台");
+  assert.equal(failed.next.label, "重试：发送可拍草稿");
+});
+
+test("warns before resetting an unexported or unhanded revision draft", () => {
+  const reset = buildWorkbenchResetPrompt({
+    hasAnalysis: true,
+    analysisPreserved: true,
+    hasRevisionDraft: true,
+    revisionPreserved: false
+  });
+  assert.deepEqual(reset.atRisk, ["尚未导出或成功交接的可拍任务草稿"]);
+  assert.match(reset.message, /下一版可拍任务草稿/u);
 });
 
 test("keeps real transcript and analysis progress when the entry selection changes", () => {

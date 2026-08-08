@@ -1,4 +1,8 @@
+import { validateCreativeRevisionDraft } from "./creative-revision.js";
+import { analysisReferenceId } from "./revision-id.js";
+
 export const ANALYSIS_HANDOFF_SCHEMA_VERSION = 1;
+export const ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION = 2;
 export const ANALYSIS_HANDOFF_KIND = "qianchuan-analysis-handoff";
 export const ANALYSIS_HANDOFF_SOURCE = "local-material-analysis-workbench";
 export const ANALYSIS_HANDOFF_METHOD = "local_deterministic_rules";
@@ -149,8 +153,13 @@ function normalizeRecommendations(rawRecommendations) {
 
 function normalizePayload(raw) {
   const document = assertPlainObject(raw, "分析交接包");
-  assertKnownKeys(document, ["schemaVersion", "kind", "source", "createdAt", "summary", "coverage", "suggestions", "recommendations", "notice", "handoffId"], "分析交接包");
-  if (document.schemaVersion !== ANALYSIS_HANDOFF_SCHEMA_VERSION) throw new Error("分析交接包版本不受支持");
+  if (![ANALYSIS_HANDOFF_SCHEMA_VERSION, ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION].includes(document.schemaVersion)) {
+    throw new Error("分析交接包版本不受支持");
+  }
+  const isRevisionHandoff = document.schemaVersion === ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION;
+  const allowedKeys = ["schemaVersion", "kind", "source", "createdAt", "summary", "coverage", "suggestions", "recommendations", "notice", "handoffId"];
+  if (isRevisionHandoff) allowedKeys.push("revisionDraft");
+  assertKnownKeys(document, allowedKeys, "分析交接包");
   if (document.kind !== ANALYSIS_HANDOFF_KIND) throw new Error("这不是受支持的分析交接包");
   const source = assertPlainObject(document.source, "分析来源");
   assertKnownKeys(source, ["tool", "method"], "分析来源");
@@ -163,8 +172,8 @@ function normalizePayload(raw) {
   if (summary.coveredStructures !== coveredStructures || summary.structureCoveragePercent !== expectedPercent) {
     throw new Error("分析摘要与结构覆盖不一致");
   }
-  return {
-    schemaVersion: ANALYSIS_HANDOFF_SCHEMA_VERSION,
+  const payload = {
+    schemaVersion: document.schemaVersion,
     kind: ANALYSIS_HANDOFF_KIND,
     source: { tool: ANALYSIS_HANDOFF_SOURCE, method: ANALYSIS_HANDOFF_METHOD },
     createdAt: safeCreatedAt(document.createdAt),
@@ -174,6 +183,8 @@ function normalizePayload(raw) {
     recommendations: normalizeRecommendations(document.recommendations),
     notice: NOTICE
   };
+  if (isRevisionHandoff) payload.revisionDraft = validateCreativeRevisionDraft(document.revisionDraft);
+  return payload;
 }
 
 function textForTag(analysis, tagId) {
@@ -214,8 +225,14 @@ export function createAnalysisHandoff(analysis, options = {}) {
         advice: safeText(item.advice, `补充建议 ${item.id}`, { maxLength: MAX_ADVICE_CHARACTERS, allowEmpty: false })
       };
     });
+  const revisionDraft = options.revisionDraft === undefined || options.revisionDraft === null
+    ? null
+    : validateCreativeRevisionDraft(options.revisionDraft);
+  if (revisionDraft && revisionDraft.sourceAnalysisId !== analysisReferenceId(source)) {
+    throw new Error("可拍任务草稿与当前结构分析不一致，请重新生成草稿");
+  }
   const payload = {
-    schemaVersion: ANALYSIS_HANDOFF_SCHEMA_VERSION,
+    schemaVersion: revisionDraft ? ANALYSIS_HANDOFF_LATEST_SCHEMA_VERSION : ANALYSIS_HANDOFF_SCHEMA_VERSION,
     kind: ANALYSIS_HANDOFF_KIND,
     source: { tool: ANALYSIS_HANDOFF_SOURCE, method: ANALYSIS_HANDOFF_METHOD },
     createdAt: safeCreatedAt(options.createdAt || new Date().toISOString()),
@@ -225,6 +242,7 @@ export function createAnalysisHandoff(analysis, options = {}) {
     recommendations,
     notice: NOTICE
   };
+  if (revisionDraft) payload.revisionDraft = revisionDraft;
   const handoff = { ...payload, handoffId: handoffIdFor(payload) };
   if (serializedBytes(handoff) > MAX_ANALYSIS_HANDOFF_BYTES) throw new Error("分析交接包超过 128 KB 上限");
   return handoff;

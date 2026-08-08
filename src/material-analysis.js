@@ -1,9 +1,15 @@
 import { buildPowerShellCommand, createTranscodeManifest, validateLocalVideoBatch } from "./transcode.js";
+import {
+  MAX_TIMED_TRANSCRIPT_BYTES,
+  MAX_TIMED_TRANSCRIPT_CHARACTERS,
+  assertTranscriptDocumentMatchesText,
+  parseTranscriptDocument
+} from "./timed-transcript.js";
 
 export const MATERIAL_WORKFLOW_KIND = "qianchuan-local-material-analysis-v1";
 export const LOCAL_TRANSCRIPTION_KIND = "qianchuan-local-transcription-handoff-v1";
-export const MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
-export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
+export const MAX_TRANSCRIPT_BYTES = MAX_TIMED_TRANSCRIPT_BYTES;
+export const MAX_TRANSCRIPT_CHARACTERS = MAX_TIMED_TRANSCRIPT_CHARACTERS;
 export const MATERIAL_VIDEO_BATCH_LIMITS = Object.freeze({
   maxFiles: 40,
   maxSingleFileBytes: 10 * 1024 * 1024 * 1024,
@@ -182,28 +188,62 @@ export function createLocalTranscriptionPlan(processingManifest, rawConfig = {},
 }
 
 export function transcriptTextFromDocument(rawText) {
-  const raw = String(rawText ?? "").replace(/^\uFEFF/u, "");
-  if (!raw.trim()) throw new Error("转写文本为空");
-  if (new TextEncoder().encode(raw).byteLength > MAX_TRANSCRIPT_BYTES || raw.length > MAX_TRANSCRIPT_CHARACTERS) {
-    throw new Error("转写文本超过 4 MB 或 20 万字符保护上限");
-  }
-  const lines = raw.replace(/\r\n?/gu, "\n").split("\n");
-  const cleaned = lines
-    .map((line) => line.trim())
-    .filter((line) => line && line.toUpperCase() !== "WEBVTT" && !/^\d+$/u.test(line) && !/^\d{1,2}:\d{2}(?::\d{2})?[,.]\d{3}\s+-->\s+\d{1,2}:\d{2}(?::\d{2})?[,.]\d{3}/u.test(line))
-    .map((line) => line.replace(/^<[^>]+>|<[^>]+>$/gu, "").trim())
-    .filter(Boolean);
-  const text = cleaned.join("\n").trim();
-  if (!text) throw new Error("转写文件中没有可分析的正文");
-  return text;
+  const raw = String(rawText ?? "");
+  const trimmed = raw.replace(/^\uFEFF/u, "").trimStart();
+  const name = /^WEBVTT(?:\s|$)/iu.test(trimmed)
+    ? "legacy.vtt"
+    : /^\s*(?:\d+\s*\n)?\d{1,2}:\d{2}:\d{2},\d{3}\s+-->/u.test(trimmed)
+      ? "legacy.srt"
+      : "legacy.txt";
+  return parseTranscriptDocument(raw, { name }).text;
 }
 
-function splitTranscript(text) {
-  const fragments = text
+function splitTranscriptContent(text) {
+  return text
     .split(/\n+|(?<=[。！？!?；;])\s*/u)
     .map((item) => item.trim())
     .filter(Boolean);
-  return fragments.length <= 600 ? fragments : [...fragments.slice(0, 599), fragments.slice(599).join(" ")];
+}
+
+function splitTranscript(text, transcriptDocument = null) {
+  let fragments;
+  if (transcriptDocument) {
+    const document = assertTranscriptDocumentMatchesText(transcriptDocument, text);
+    fragments = document.cues.flatMap((cue) => splitTranscriptContent(cue.content).map((content) => ({
+      content,
+      source: {
+        kind: cue.startMs === null ? "paragraph" : "cue",
+        cueIndex: cue.index,
+        label: cue.label,
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        start: cue.start,
+        end: cue.end
+      }
+    })));
+  } else {
+    fragments = splitTranscriptContent(text).map((content, index) => ({
+      content,
+      source: {
+        kind: "paragraph",
+        cueIndex: index + 1,
+        label: "",
+        startMs: null,
+        endMs: null,
+        start: "",
+        end: ""
+      }
+    }));
+  }
+  if (fragments.length <= 600) return fragments;
+  const overflow = fragments.slice(599);
+  return [
+    ...fragments.slice(0, 599),
+    {
+      content: overflow.map((item) => item.content).join(" "),
+      source: { kind: "combined", cueIndex: 600, label: "合并余下段落", startMs: null, endMs: null, start: "", end: "" }
+    }
+  ];
 }
 
 function tagsForSegment(text, index) {
@@ -214,11 +254,12 @@ function tagsForSegment(text, index) {
 
 export function analyzeTranscriptStructure(rawText, options = {}) {
   const text = transcriptTextFromDocument(rawText);
-  const fragments = splitTranscript(text);
-  const segments = fragments.map((content, index) => ({
+  const fragments = splitTranscript(text, options.transcriptDocument || null);
+  const segments = fragments.map(({ content, source }, index) => ({
     index: index + 1,
     content,
-    tags: tagsForSegment(content, index)
+    tags: tagsForSegment(content, index),
+    source
   }));
   const coverage = Object.fromEntries(STRUCTURE_RULES.map((rule) => {
     const matched = segments.filter((segment) => segment.tags.includes(rule.id));
@@ -267,7 +308,12 @@ export function materialAnalysisToMarkdown(result) {
   ];
   for (const item of Object.values(result.coverage)) lines.push(`- ${item.present ? "[x]" : "[ ]"} ${item.label}${item.present ? `（${item.count} 段）` : ""}`);
   lines.push("", "## 分段标注", "");
-  for (const segment of result.segments) lines.push(`${segment.index}. ${segment.content}${segment.tags.length ? `  \n   标签：${segment.tags.map((id) => result.coverage[id].label).join("、")}` : ""}`);
+  for (const segment of result.segments) {
+    const source = segment.source?.start
+      ? `${segment.source.start} → ${segment.source.end}${segment.source.label ? ` · ${segment.source.label}` : ""}`
+      : `段落 ${segment.source?.cueIndex || segment.index}`;
+    lines.push(`${segment.index}. 【${source}】${segment.content}${segment.tags.length ? `  \n   标签：${segment.tags.map((id) => result.coverage[id].label).join("、")}` : ""}`);
+  }
   if (result.recommendations.length) {
     lines.push("", "## 待补结构", "");
     for (const item of result.recommendations) lines.push(`- **${item.label}**：${item.advice}`);

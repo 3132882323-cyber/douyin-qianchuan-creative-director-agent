@@ -12,8 +12,11 @@ export const ANALYSIS_HANDOFF_INBOX_TTL_MS = 2 * 60 * 60 * 1000;
 export const MAX_ANALYSIS_HANDOFF_ENVELOPE_BYTES = MAX_ANALYSIS_HANDOFF_BYTES + 4096;
 
 export function analysisHandoffForAnalysis(cache, analysis, options = {}) {
-  if (cache?.analysis === analysis) return { analysis, handoff: validateAnalysisHandoff(cache.handoff) };
-  return { analysis, handoff: createAnalysisHandoff(analysis, options) };
+  const revisionDraft = options.revisionDraft || null;
+  if (cache?.analysis === analysis && (cache?.revisionDraft || null) === revisionDraft) {
+    return { analysis, revisionDraft, handoff: validateAnalysisHandoff(cache.handoff) };
+  }
+  return { analysis, revisionDraft, handoff: createAnalysisHandoff(analysis, options) };
 }
 
 function inboxError(code, message) {

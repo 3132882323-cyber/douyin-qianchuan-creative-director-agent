@@ -10,7 +10,7 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.0.7</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.1.0</p>
         <h1>抖音千川素材编导</h1>
         <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
@@ -118,11 +118,25 @@
               <span id="analysis-handoff-summary"></span>
             </div>
             <div id="analysis-handoff-suggestions" class="handoff-suggestions"></div>
+            <section id="analysis-handoff-revision" class="handoff-revision" aria-labelledby="analysis-handoff-revision-title" hidden>
+              <div class="section-title">
+                <h3 id="analysis-handoff-revision-title">下一版可拍任务 · 只读预览</h3>
+                <span id="analysis-handoff-revision-variable">单变量</span>
+              </div>
+              <dl class="handoff-revision-meta">
+                <div><dt>测试编号</dt><dd id="analysis-handoff-revision-id">—</dd></div>
+                <div><dt>父版本</dt><dd id="analysis-handoff-revision-parent">—</dd></div>
+                <div><dt>来源分析</dt><dd id="analysis-handoff-revision-source">—</dd></div>
+              </dl>
+              <div id="analysis-handoff-revision-evidence" class="handoff-revision-evidence"></div>
+              <div id="analysis-handoff-revision-fields" class="handoff-revision-fields"></div>
+              <p id="analysis-handoff-revision-notice" class="helper"></p>
+            </section>
             <div class="handoff-actions">
               <button id="apply-analysis-handoff" type="button" class="primary" aria-describedby="analysis-handoff-boundary" disabled>确认填入选中的空白字段</button>
               <button id="clear-analysis-handoff" type="button" class="secondary">清除预览</button>
             </div>
-            <p id="analysis-handoff-boundary" class="helper">不会覆盖已有内容；导入建议仍需编导核对事实、证据与合规表达。</p>
+            <p id="analysis-handoff-boundary" class="helper">不会覆盖已有内容；V2 可拍草稿仅供只读预览，不会写入创作方案。导入建议仍需编导核对事实、证据与合规表达。</p>
           </section>
           <p id="analysis-handoff-message" class="success" role="status" aria-live="polite"></p>
           <p id="analysis-handoff-error" class="error" role="alert"></p>
@@ -307,7 +321,7 @@
               <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
             </div>
           </div>
-          <p class="helper">V1.0.7 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
+          <p class="helper">V1.1.0 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>

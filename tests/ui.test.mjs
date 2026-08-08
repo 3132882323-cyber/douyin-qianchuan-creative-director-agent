@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.0.7");
+  assert.equal(manifest.version, "1.1.0");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -67,7 +67,7 @@ test("keeps narrow side panels and programmatic focus usable", () => {
 });
 
 test("receives session handoffs without replacing a preview and only fills selected empty fields", () => {
-  for (const id of ["analysis-handoff-inbox", "show-analysis-handoff-inbox", "discard-analysis-handoff-inbox", "analysis-handoff-file", "analysis-handoff-preview", "analysis-handoff-summary", "analysis-handoff-suggestions", "apply-analysis-handoff", "clear-analysis-handoff", "analysis-handoff-message", "analysis-handoff-error"]) {
+  for (const id of ["analysis-handoff-inbox", "show-analysis-handoff-inbox", "discard-analysis-handoff-inbox", "analysis-handoff-file", "analysis-handoff-preview", "analysis-handoff-summary", "analysis-handoff-suggestions", "analysis-handoff-revision", "analysis-handoff-revision-id", "analysis-handoff-revision-parent", "analysis-handoff-revision-source", "analysis-handoff-revision-evidence", "analysis-handoff-revision-fields", "apply-analysis-handoff", "clear-analysis-handoff", "analysis-handoff-message", "analysis-handoff-error"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /只会填入选中的空白字段/u);
@@ -89,6 +89,12 @@ test("receives session handoffs without replacing a preview and only fills selec
   assert.match(script, /if \(!candidate\?\.canFill \|\| !field \|\| String\(field\.value\)\.trim\(\)\)/u);
   assert.match(script, /#apply-analysis-handoff"\)\.addEventListener\("click"/u);
   assert.match(script, /交接包已在本地校验并生成预览；尚未修改任何创作任务字段/u);
+  assert.match(script, /function renderAnalysisHandoffRevision\(revisionDraft\)/u);
+  assert.match(script, /for \(const field of CREATIVE_REVISION_EDITABLE_FIELDS\)/u);
+  assert.match(script, /此处仅预览，不会写入或覆盖创作方案/u);
+  const handoffPreviewBlock = script.slice(script.indexOf("function renderAnalysisHandoffRevision"), script.indexOf("function sessionStorageArea"));
+  assert.doesNotMatch(handoffPreviewBlock, /state\.plan\s*=|creativePlan|chrome\.storage\.local\.set/u);
+  assert.match(html, /V2 可拍草稿仅供只读预览，不会写入创作方案/u);
   const storageKeys = script.match(/const STORAGE_KEYS = \[([^\]]+)\]/u)?.[1] || "";
   assert.doesNotMatch(storageKeys, /handoff/iu);
 });

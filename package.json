@@ -1,11 +1,11 @@
 {
   "name": "douyin-qianchuan-creative-director-agent",
-  "version": "1.0.7",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check service-worker.js && node --check sidepanel.js && node --check workbench.js && node --check src/core.js && node --check src/update.js && node --check src/transcode.js && node --check src/local-image-repair.js && node --check src/local-file-guard.js && node --check src/material-analysis.js && node --check src/release-safety.js && node --check src/workspace-recovery.js && node --check src/workbench-overview.js && node --check src/recent-work.js && node --check src/analysis-handoff.js && node --check src/analysis-handoff-inbox.js",
+    "check": "node --check service-worker.js && node --check sidepanel.js && node --check workbench.js && node --check src/core.js && node --check src/update.js && node --check src/transcode.js && node --check src/local-image-repair.js && node --check src/local-file-guard.js && node --check src/material-analysis.js && node --check src/timed-transcript.js && node --check src/revision-id.js && node --check src/creative-revision.js && node --check src/release-safety.js && node --check src/workspace-recovery.js && node --check src/workbench-overview.js && node --check src/recent-work.js && node --check src/analysis-handoff.js && node --check src/analysis-handoff-inbox.js",
     "verify": "npm test && npm run check"
   },
   "license": "MIT"

@@ -156,10 +156,40 @@ code { color: #efc878; font-family: Consolas, monospace; }
 .segment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .segment { padding: 11px 13px; border-left: 3px solid #3a3f47; border-radius: 5px; background: #111419; }
 .segment p { margin: 0; }
+.segment-source { display: block; margin-bottom: 6px; color: #8f97a2; font: 10px/1.45 Consolas, monospace; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .tags span { padding: 2px 6px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: 10px; }
 .recommendations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 16px 0; }
 .recommendations article { padding: 10px 12px; border: 1px solid #4c362c; border-radius: 7px; background: #211512; color: #d9c1b6; }
+.revision-builder { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.revision-builder .result-head { margin-top: 0; }
+.revision-builder .result-head .help { margin-top: 5px; }
+.revision-recommendations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 14px 0 8px; border: 0; padding: 0; }
+.revision-recommendations legend { grid-column: 1 / -1; margin-bottom: 6px; padding: 0; color: #d9dce1; font-size: 12px; font-weight: 800; }
+.revision-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 10px; padding: 12px; border: 1px solid #343a43; border-radius: 9px; background: #111419; cursor: pointer; }
+.revision-option:has(input:checked) { border-color: #8a6b31; background: #211a11; }
+.revision-option input { grid-row: 1 / 4; width: 17px; min-height: 17px; margin: 2px 0 0; accent-color: var(--gold); }
+.revision-option strong { color: #e6e2d9; }
+.revision-option span { color: #c7cbd1; font-size: 11px; font-weight: 400; }
+.revision-option small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.revision-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .38fr); align-items: end; gap: 12px; margin-top: 13px; }
+.revision-draft { margin-top: 18px; padding: 18px; border: 1px solid #5b4528; border-radius: 12px; background: #111419; }
+.revision-draft-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 18px; align-items: start; }
+.revision-draft-head h3 { margin: 0; font-size: 20px; }
+.revision-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.revision-meta div { padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: #171a1f; }
+.revision-meta dt { color: var(--muted); font-size: 9px; }
+.revision-meta dd { margin: 2px 0 0; overflow-wrap: anywhere; color: #dcdfe3; font: 10px/1.45 Consolas, monospace; }
+.revision-evidence { display: grid; gap: 7px; margin: 14px 0; }
+.revision-evidence article { padding: 9px 11px; border-left: 3px solid #6e582e; border-radius: 5px; background: #1c1913; }
+.revision-evidence strong { display: block; color: var(--gold); font-size: 10px; }
+.revision-evidence p { margin: 4px 0 0; color: #c7c2b7; font-size: 11px; }
+.revision-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.revision-fields textarea { min-height: 92px; }
+.revision-fields .revision-field-wide { grid-column: 1 / -1; }
+.boundary-inline { margin: 14px 0 0; padding: 10px 12px; border: 1px solid #5b4528; border-radius: 8px; background: #211a11; color: #cbbd9e; font-size: 11px; }
+.revision-confirm { margin-bottom: 10px; }
+.revision-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 main *, .sidebar * { min-width: 0; }
 .task p, .operation-item span, .instructions, code, .help, .boundary span, .local-note span { overflow-wrap: anywhere; word-break: break-word; }
 
@@ -167,7 +197,8 @@ main *, .sidebar * { min-width: 0; }
   .source-layout { grid-template-columns: 1fr; }
   .source-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .source-fields .field-stack:last-child { grid-column: 1 / -1; }
-  .segment-list, .recommendations { grid-template-columns: 1fr; }
+  .segment-list, .recommendations, .revision-recommendations { grid-template-columns: 1fr; }
+  .revision-draft-head { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1100px) {
@@ -198,7 +229,10 @@ main *, .sidebar * { min-width: 0; }
   .ghost-button, .overview-head button { width: 100%; }
   .overview-action { width: 100%; }
   .overview-action button { min-width: 0; }
-  .entry-mode, .overview-steps, .grid.two, .source-fields, .workflow-cards, .coverage-grid, .button-row, .button-row.compact, .engine-config, .segment-list, .recommendations { grid-template-columns: 1fr; }
+  .entry-mode, .overview-steps, .grid.two, .source-fields, .workflow-cards, .coverage-grid, .button-row, .button-row.compact, .engine-config, .segment-list, .recommendations, .revision-recommendations, .revision-setup, .revision-fields, .revision-actions { grid-template-columns: 1fr; }
+  .revision-fields .revision-field-wide { grid-column: auto; }
+  .revision-meta { grid-template-columns: 1fr; }
+  .revision-draft { padding: 14px; }
   .source-fields .field-stack:last-child { grid-column: auto; }
   .boundary { grid-template-columns: 1fr; gap: 5px; }
   .panel { scroll-margin-top: 16px; padding: 20px 16px; }
@@ -213,6 +247,16 @@ main *, .sidebar * { min-width: 0; }
   .operation-item, .task-head, .progress-head { display: grid; grid-template-columns: 1fr; }
   .operation-item strong, .task-head span { text-align: left; }
   button, .ghost-button { white-space: normal; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 400px) {
+  .sidebar { padding-inline: 10px; }
+  .brand span { width: 32px; height: 32px; }
+  main { padding: 16px 9px 42px; }
+  .panel, .task-overview { padding: 15px 11px; border-radius: 10px; }
+  .revision-draft { padding: 11px 9px; }
+  .revision-option { padding: 10px 9px; }
+  .revision-actions button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

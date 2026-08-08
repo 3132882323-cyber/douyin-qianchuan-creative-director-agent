@@ -16,6 +16,9 @@ const paths = {
   localImageRepair: "../src/local-image-repair.js",
   localFileGuard: "../src/local-file-guard.js",
   materialAnalysis: "../src/material-analysis.js",
+  timedTranscript: "../src/timed-transcript.js",
+  revisionId: "../src/revision-id.js",
+  creativeRevision: "../src/creative-revision.js",
   releaseSafety: "../src/release-safety.js",
   workspaceRecovery: "../src/workspace-recovery.js",
   workbenchOverview: "../src/workbench-overview.js",
@@ -35,14 +38,14 @@ const files = Object.fromEntries(entries);
 test("keeps every user-visible V1 source version aligned", () => {
   const manifest = JSON.parse(files.manifest);
   const packageJson = JSON.parse(files.package);
-  assert.equal(manifest.version, "1.0.7");
-  assert.equal(packageJson.version, "1.0.7");
-  assert.match(files.sidepanelHtml, /V1\.0\.7/u);
-  assert.match(files.workbenchHtml, /V1\.0\.7/u);
-  assert.match(files.core, /version: "1\.0\.7"/u);
-  assert.match(files.transcode, /creatorVersion \|\| "1\.0\.7"/u);
-  assert.match(files.readme, /V1\.0\.7/u);
-  assert.match(files.changelog, /## \[1\.0\.7\]/u);
+  assert.equal(manifest.version, "1.1.0");
+  assert.equal(packageJson.version, "1.1.0");
+  assert.match(files.sidepanelHtml, /V1\.1\.0/u);
+  assert.match(files.workbenchHtml, /V1\.1\.0/u);
+  assert.match(files.core, /version: "1\.1\.0"/u);
+  assert.match(files.transcode, /creatorVersion \|\| "1\.1\.0"/u);
+  assert.match(files.readme, /V1\.1\.0/u);
+  assert.match(files.changelog, /## \[1\.1\.0\]/u);
 });
 
 test("pins a strict MV3 extension CSP without expanding permissions", () => {
@@ -64,7 +67,7 @@ test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
   assert.ok(checkedFiles.length >= 15);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js"]) {
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
 });
@@ -81,6 +84,9 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.localImageRepair,
     files.localFileGuard,
     files.materialAnalysis,
+    files.timedTranscript,
+    files.revisionId,
+    files.creativeRevision,
     files.releaseSafety,
     files.workspaceRecovery,
     files.workbenchOverview,

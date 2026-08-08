@@ -10,6 +10,7 @@ import {
   transcriptTextFromDocument,
   validateDouyinSourceNote
 } from "../src/material-analysis.js";
+import { parseTranscriptDocument } from "../src/timed-transcript.js";
 
 const ownedVideo = {
   name: "主片.mp4",
@@ -137,4 +138,26 @@ test("cleans local subtitle timing and analyzes the copy structure deterministic
   assert.equal(result.coverage.pain.present, true);
   assert.equal(result.coverage.evidence.present, true);
   assert.equal(result.coverage.cta.present, true);
+});
+
+test("retains cue timing in analysis segments and invalidates edited transcript mappings", () => {
+  const document = parseTranscriptDocument([
+    "hook", "00:00:00,000 --> 00:00:02,000", "先别划走。", "",
+    "proof", "00:00:02,000 --> 00:00:05,000", "现场实测 30 秒。"
+  ].join("\n"), { name: "本地字幕.srt" });
+  const result = analyzeTranscriptStructure(document.text, {
+    sourceName: "本地字幕.srt",
+    transcriptDocument: document,
+    generatedAt: "2026-08-08T01:02:03.000Z"
+  });
+  assert.deepEqual(result.segments[0].source, {
+    kind: "cue",
+    cueIndex: 1,
+    label: "hook",
+    startMs: 0,
+    endMs: 2000,
+    start: "00:00:00.000",
+    end: "00:00:02.000"
+  });
+  assert.throws(() => analyzeTranscriptStructure("编辑后的正文", { transcriptDocument: document }), /旧时间码.*已失效/u);
 });

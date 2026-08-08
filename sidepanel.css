@@ -120,6 +120,18 @@ button:disabled { cursor: not-allowed; opacity: .38; filter: none; }
 .handoff-suggestion-copy strong { display: block; color: var(--text); font-size: 10px; }
 .handoff-suggestion-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; }
 .handoff-suggestion-copy p { max-height: 88px; margin: 6px 0 0; overflow: auto; color: #c9ccd1; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.handoff-revision { margin-top: 12px; padding: 11px; border: 1px solid #5b4528; border-radius: 10px; background: #17140f; }
+.handoff-revision .section-title { align-items: flex-start; }
+.handoff-revision-meta { display: grid; gap: 6px; margin: 0 0 9px; }
+.handoff-revision-meta div { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 7px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: #101215; }
+.handoff-revision-meta dt { color: var(--muted); font-size: 8px; }
+.handoff-revision-meta dd { margin: 0; overflow-wrap: anywhere; color: #d7d9dd; font: 8px/1.45 Consolas, monospace; }
+.handoff-revision-evidence, .handoff-revision-fields { display: grid; gap: 6px; }
+.handoff-revision-evidence { margin-bottom: 8px; }
+.handoff-revision-evidence article, .handoff-revision-fields article { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: #101215; }
+.handoff-revision-evidence article { border-left-color: #8a6b31; }
+.handoff-revision-evidence strong, .handoff-revision-fields strong { display: block; color: var(--gold); font-size: 8px; }
+.handoff-revision-evidence p, .handoff-revision-fields p { max-height: 128px; margin: 4px 0 0; overflow: auto; color: #c9ccd1; font-size: 9px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
 .handoff-actions { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 8px; margin-top: 10px; }
 .field { display: grid; grid-template-columns: 1fr 84px; align-items: center; gap: 8px; margin: 12px 0 0; color: var(--muted); font-size: 10px; }
 
@@ -324,7 +336,7 @@ details > summary small { margin-left: auto; color: var(--muted); font-size: 8px
   .operation-item strong { text-align: left; }
   .transcode-task pre { max-height: none; overflow: visible; }
   code, pre, .helper, .notice, .success, .error { overflow-wrap: anywhere; word-break: break-word; }
-  .handoff-inbox-actions, .handoff-actions { grid-template-columns: 1fr; }
+  .handoff-inbox-actions, .handoff-actions, .handoff-revision-meta div { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -4,9 +4,16 @@ import {
   createLocalTranscriptionPlan,
   createMaterialProcessingManifest,
   materialAnalysisToMarkdown,
-  transcriptTextFromDocument,
   validateDouyinSourceNote
 } from "./src/material-analysis.js";
+import { parseTranscriptDocument, transcriptDocumentMatchesText } from "./src/timed-transcript.js";
+import {
+  CREATIVE_REVISION_EDITABLE_FIELDS,
+  creativeRevisionToMarkdown,
+  creativeRevisionWithEdits,
+  createCreativeRevisionDraft,
+  revisionRecommendationsForAnalysis
+} from "./src/creative-revision.js";
 import { isSupportedVideoFile, transcodeProgress, validateLocalVideoBatch, validateTranscodeResult } from "./src/transcode.js";
 import { formatLocalBytes } from "./src/local-file-guard.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
@@ -29,8 +36,15 @@ const state = {
   transcriptionPlan: null,
   transcriptionExported: false,
   transcriptSourceName: "手动粘贴文本",
+  transcriptDocument: null,
+  timingInvalidated: false,
   analysis: null,
   analysisPreserved: false,
+  revisionRecommendations: [],
+  selectedRecommendationIds: new Set(),
+  revisionDraft: null,
+  revisionPreserved: false,
+  revisionConfirmed: false,
   analysisHandoffCache: null,
   handoffState: "idle",
   flowModel: null
@@ -143,6 +157,9 @@ function updateWorkbenchOverview() {
     processingPrepared: state.processingPrepared,
     transcriptLength,
     analysis: analysis?.summary || null,
+    selectedRecommendationCount: state.selectedRecommendationIds.size,
+    revisionDraft: state.revisionDraft,
+    revisionConfirmed: state.revisionConfirmed,
     handoffState: state.handoffState
   });
   state.flowModel = model;
@@ -221,6 +238,7 @@ document.querySelectorAll('input[name="workbench-entry-mode"]').forEach((input) 
     if (state.processingManifest) preserved.push("处理任务");
     if ($("#transcript-text").value.trim()) preserved.push("转写正文");
     if (state.analysis) preserved.push("分析结果");
+    if (state.revisionDraft) preserved.push("可拍任务草稿");
     const label = state.entryMode === "transcript" ? "分析已有转写" : "处理本地视频";
     setFlowFeedback({
       status: `${previous ? "已切换" : "已选择"}“${label}”入口。${preserved.length ? `已保留当前${preserved.join("、")}；顶部会优先遵循已完成的真实状态。` : "没有读取、上传或清空任何内容。"}`
@@ -265,6 +283,8 @@ function workbenchResetSnapshot() {
     transcriptLength: $("#transcript-text").value.trim().length,
     hasAnalysis: Boolean(state.analysis),
     analysisPreserved: state.analysisPreserved,
+    hasRevisionDraft: Boolean(state.revisionDraft),
+    revisionPreserved: state.revisionPreserved,
     handoffState: state.handoffState,
     hasSetupValues,
     hasFeedback: feedbackSelectors.some((selector) => $(selector).textContent.trim())
@@ -280,8 +300,15 @@ function resetWorkbenchSession() {
   state.transcriptionPlan = null;
   state.transcriptionExported = false;
   state.transcriptSourceName = "手动粘贴文本";
+  state.transcriptDocument = null;
+  state.timingInvalidated = false;
   state.analysis = null;
   state.analysisPreserved = false;
+  state.revisionRecommendations = [];
+  state.selectedRecommendationIds = new Set();
+  state.revisionDraft = null;
+  state.revisionPreserved = false;
+  state.revisionConfirmed = false;
   state.analysisHandoffCache = null;
   state.handoffState = "idle";
   state.flowModel = null;
@@ -298,6 +325,7 @@ function resetWorkbenchSession() {
   $("#whisper-executable").value = "";
   $("#whisper-model").value = "";
   $("#transcript-text").value = "";
+  $("#revision-parent-version").value = "";
 
   $("#processing-queue").hidden = true;
   $("#processing-task-list").replaceChildren();
@@ -322,6 +350,19 @@ function resetWorkbenchSession() {
   $("#structure-segments").replaceChildren();
   $("#structure-recommendations").replaceChildren();
   setNodeText("#structure-disclaimer", "");
+  renderRevisionRecommendations();
+  $("#revision-draft").hidden = true;
+  $("#revision-evidence").replaceChildren();
+  for (const field of document.querySelectorAll("[data-revision-field]")) field.value = "";
+  $("#confirm-revision-draft").checked = false;
+  $("#send-analysis-handoff").disabled = true;
+  $("#export-analysis-handoff").disabled = true;
+  $("#generate-revision-draft").disabled = true;
+  setNodeText("#revision-test-id", "—");
+  setNodeText("#revision-source-analysis-id", "—");
+  setNodeText("#revision-primary-variable", "—");
+  setNodeText("#revision-notice", "");
+  setFeedback("#revision-selection-message", "#revision-selection-error");
 
   for (const [statusSelector, errorSelector] of [
     ["#source-message", "#source-error"],
@@ -731,25 +772,142 @@ $("#export-transcription-plan").addEventListener("click", () => {
   setFeedback("#transcription-message", "#transcription-error", { status: "本地转写任务清单已导出；其中包含本机路径，请仅在可信设备保存。" });
 });
 
+function setRevisionConfirmation(confirmed) {
+  state.revisionConfirmed = Boolean(confirmed && state.revisionDraft);
+  $("#confirm-revision-draft").checked = state.revisionConfirmed;
+  $("#send-analysis-handoff").disabled = !state.revisionConfirmed;
+  $("#export-analysis-handoff").disabled = !state.revisionConfirmed;
+}
+
+function clearRevisionDraft({ clearSelection = false } = {}) {
+  state.revisionDraft = null;
+  state.revisionPreserved = false;
+  state.analysisHandoffCache = null;
+  state.handoffState = "idle";
+  if (clearSelection) state.selectedRecommendationIds = new Set();
+  setRevisionConfirmation(false);
+  $("#revision-draft").hidden = true;
+  $("#revision-evidence").replaceChildren();
+  for (const field of document.querySelectorAll("[data-revision-field]")) field.value = "";
+  setNodeText("#revision-test-id", "—");
+  setNodeText("#revision-source-analysis-id", "—");
+  setNodeText("#revision-primary-variable", "—");
+  setNodeText("#revision-notice", "");
+}
+
+function invalidateTranscriptAnalysis(message) {
+  const hadAnalysis = Boolean(state.analysis);
+  state.analysis = null;
+  state.analysisPreserved = false;
+  state.revisionRecommendations = [];
+  clearRevisionDraft({ clearSelection: true });
+  $("#revision-parent-version").value = "";
+  $("#structure-result").hidden = true;
+  $("#analyze-transcript").setAttribute("aria-expanded", "false");
+  setStatus("#structure-status", hadAnalysis ? "需要重新分析" : "尚未分析");
+  if (message) setFeedback("#structure-message", "#structure-error", { status: message });
+}
+
+function segmentSourceLabel(segment) {
+  if (segment?.source?.start) {
+    return `${segment.source.start} → ${segment.source.end}${segment.source.label ? ` · ${segment.source.label}` : ""}`;
+  }
+  return `段落 ${segment?.source?.cueIndex || segment?.index || 1}`;
+}
+
+function renderRevisionRecommendations() {
+  const fieldset = $("#revision-recommendations");
+  fieldset.replaceChildren();
+  const legend = element("legend", "", "选择一项改进建议（必选）");
+  fieldset.append(legend);
+  if (!state.revisionRecommendations.length) {
+    fieldset.append(element("p", "empty-inline", "完成结构分析后，将在这里显示可选择的单变量改进建议。"));
+    $("#generate-revision-draft").disabled = true;
+    return;
+  }
+  for (const recommendation of state.revisionRecommendations) {
+    const option = element("label", "revision-option");
+    const input = element("input");
+    input.type = "radio";
+    input.name = "revision-recommendation";
+    input.value = recommendation.id;
+    input.checked = state.selectedRecommendationIds.has(recommendation.id);
+    const sourceLabels = recommendation.evidenceSegmentIndexes
+      .map((index) => state.analysis?.segments?.[index - 1])
+      .filter(Boolean)
+      .map(segmentSourceLabel);
+    option.append(
+      input,
+      element("strong", "", `${recommendation.label} · 唯一变量`),
+      element("span", "", recommendation.advice),
+      element("small", "", sourceLabels.length ? `分析来源：${sourceLabels.join("；")}` : "分析来源：当前文本规则提示")
+    );
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      const changed = !state.selectedRecommendationIds.has(recommendation.id);
+      state.selectedRecommendationIds = new Set([recommendation.id]);
+      if (changed && state.revisionDraft) clearRevisionDraft();
+      for (const radio of fieldset.querySelectorAll('input[type="radio"]')) radio.checked = radio === input;
+      $("#generate-revision-draft").disabled = false;
+      setFeedback("#revision-selection-message", "#revision-selection-error", {
+        status: `已选择“${recommendation.label}”作为唯一测试变量；现在可以生成草稿。`
+      });
+      updateWorkbenchOverview();
+    });
+    fieldset.append(option);
+  }
+  $("#generate-revision-draft").disabled = state.selectedRecommendationIds.size < 1;
+}
+
+function renderRevisionDraft(draft) {
+  setNodeText("#revision-test-id", draft.testId);
+  setNodeText("#revision-source-analysis-id", draft.sourceAnalysisId);
+  setNodeText("#revision-primary-variable", draft.primaryVariable.label);
+  setNodeText("#revision-notice", draft.notice);
+  for (const field of CREATIVE_REVISION_EDITABLE_FIELDS) {
+    const control = document.querySelector(`[data-revision-field="${field}"]`);
+    if (control) control.value = draft[field];
+  }
+  const evidence = $("#revision-evidence");
+  evidence.replaceChildren();
+  for (const item of draft.evidence) {
+    const card = element("article");
+    card.append(element("strong", "", `分析证据 · ${item.sourceLabel}`), element("p", "", item.excerpt));
+    evidence.append(card);
+  }
+  setRevisionConfirmation(false);
+  $("#revision-draft").hidden = false;
+}
+
+function currentRevisionDraft() {
+  if (!state.revisionDraft) throw new Error("请先生成下一版可拍任务草稿");
+  const edits = Object.fromEntries(CREATIVE_REVISION_EDITABLE_FIELDS.map((field) => {
+    const control = document.querySelector(`[data-revision-field="${field}"]`);
+    return [field, control?.value || ""];
+  }));
+  if (CREATIVE_REVISION_EDITABLE_FIELDS.some((field) => edits[field] !== state.revisionDraft[field])) {
+    state.revisionDraft = creativeRevisionWithEdits(state.revisionDraft, edits);
+  }
+  return state.revisionDraft;
+}
+
 $("#transcript-file").addEventListener("change", async (event) => {
   const file = event.target.files[0];
   event.target.value = "";
   if (!file) return;
   try {
     validateNonMediaImport(file, "transcript");
-    const text = transcriptTextFromDocument(await file.text());
+    const transcriptDocument = parseTranscriptDocument(await file.text(), { name: file.name });
+    const text = transcriptDocument.text;
     selectEntryMode("transcript");
     $("#transcript-text").value = text;
     state.transcriptSourceName = file.name;
+    state.transcriptDocument = transcriptDocument;
+    state.timingInvalidated = false;
     setStatus("#transcript-status", `${text.length.toLocaleString("zh-CN")} 字符`, true);
-    state.analysis = null;
-    state.analysisPreserved = false;
-    state.analysisHandoffCache = null;
-    state.handoffState = "idle";
-    $("#structure-result").hidden = true;
-    $("#analyze-transcript").setAttribute("aria-expanded", "false");
-    setStatus("#structure-status", "尚未分析");
-    setFeedback("#transcription-message", "#transcription-error", { status: "文本已在本地读取；时间码与字幕序号已清理。" });
+    invalidateTranscriptAnalysis();
+    const mapping = transcriptDocument.hasTiming ? `${transcriptDocument.cues.length} 个时间段已保留` : `${transcriptDocument.cues.length} 个文本段落已建立`;
+    setFeedback("#transcription-message", "#transcription-error", { status: `文本已在本地读取；${mapping}，分析时会显示来源。` });
     setFlowFeedback({ status: "转写文本已在本地读取；下一步分析文案结构。" });
     updateWorkbenchOverview();
   } catch (error) {
@@ -762,20 +920,18 @@ $("#transcript-file").addEventListener("change", async (event) => {
 $("#transcript-text").addEventListener("input", (event) => {
   const length = event.target.value.trim().length;
   if (length) {
-    state.transcriptSourceName = "手动粘贴文本";
     selectEntryMode("transcript");
   }
-  setStatus("#transcript-status", length ? `${length.toLocaleString("zh-CN")} 字符` : "等待文本", length > 0);
-  if (state.analysis) {
-    state.analysis = null;
-    state.analysisPreserved = false;
-    state.analysisHandoffCache = null;
-    state.handoffState = "idle";
-    $("#structure-result").hidden = true;
-    $("#analyze-transcript").setAttribute("aria-expanded", "false");
-    setStatus("#structure-status", "需要重新分析");
-    setFeedback("#structure-message", "#structure-error", { status: "转写正文已改变，旧结构分析已失效。" });
+  let timingMessage = "";
+  if (state.transcriptDocument && !transcriptDocumentMatchesText(state.transcriptDocument, event.target.value)) {
+    state.transcriptDocument = null;
+    state.timingInvalidated = true;
+    timingMessage = "正文已手动编辑，旧时间码或段落映射已失效；当前分析将按新文本段落重新建立来源。";
   }
+  state.transcriptSourceName = "手动粘贴文本";
+  setStatus("#transcript-status", length ? `${length.toLocaleString("zh-CN")} 字符` : "等待文本", length > 0);
+  invalidateTranscriptAnalysis(timingMessage || "转写正文已改变，旧结构分析与可拍草稿已失效。");
+  if (timingMessage) setFeedback("#transcription-message", "#transcription-error", { status: timingMessage });
   updateWorkbenchOverview();
 });
 
@@ -793,7 +949,8 @@ function renderStructureAnalysis(result) {
   segmentList.replaceChildren();
   for (const segment of result.segments.slice(0, 200)) {
     const card = element("article", "segment");
-    card.append(element("p", "", `${segment.index}. ${segment.content}`));
+    card.append(element("small", "segment-source", `${segment.index}. ${segmentSourceLabel(segment)}`));
+    card.append(element("p", "", segment.content));
     if (segment.tags.length) {
       const tags = element("div", "tags");
       for (const id of segment.tags) tags.append(element("span", "", result.coverage[id].label));
@@ -801,6 +958,11 @@ function renderStructureAnalysis(result) {
     }
     segmentList.append(card);
   }
+  state.revisionRecommendations = revisionRecommendationsForAnalysis(result);
+  state.selectedRecommendationIds = new Set();
+  clearRevisionDraft();
+  renderRevisionRecommendations();
+  setFeedback("#revision-selection-message", "#revision-selection-error");
   if (result.segments.length > 200) segmentList.append(element("p", "help", `页面只预览前 200 段；导出文件包含全部 ${result.segments.length} 段。`));
   const recommendations = $("#structure-recommendations");
   recommendations.replaceChildren();
@@ -819,16 +981,24 @@ function renderStructureAnalysis(result) {
 $("#analyze-transcript").addEventListener("click", () => {
   setFeedback("#structure-message", "#structure-error");
   try {
-    state.analysis = analyzeTranscriptStructure($("#transcript-text").value, { sourceName: state.transcriptSourceName });
+    state.analysis = analyzeTranscriptStructure($("#transcript-text").value, {
+      sourceName: state.transcriptSourceName,
+      transcriptDocument: state.transcriptDocument
+    });
     state.analysisPreserved = false;
     state.analysisHandoffCache = null;
     state.handoffState = "idle";
     renderStructureAnalysis(state.analysis);
     setFeedback("#structure-message", "#structure-error", { status: "结构分析已在浏览器本地完成；结果来自确定性规则，不代表投放效果预测。" });
-    setFlowFeedback({ status: "结构分析已完成；下一步发送受限摘要到编导台。" });
+    setFlowFeedback({ status: "结构分析已完成；下一步选择一项改进建议，生成单变量可拍草稿。" });
   } catch (error) {
     state.analysis = null;
     state.analysisPreserved = false;
+    state.revisionRecommendations = [];
+    state.selectedRecommendationIds = new Set();
+    state.revisionDraft = null;
+    state.revisionPreserved = false;
+    state.revisionConfirmed = false;
     state.analysisHandoffCache = null;
     state.handoffState = "idle";
     $("#structure-result").hidden = true;
@@ -856,47 +1026,151 @@ $("#export-structure-md").addEventListener("click", () => {
   }
 });
 
+$("#generate-revision-draft").addEventListener("click", () => {
+  setFeedback("#revision-selection-message", "#revision-selection-error");
+  try {
+    if (!state.analysis) throw new Error("请先完成当前转写文本的结构分析");
+    const selectedRecommendationId = [...state.selectedRecommendationIds][0];
+    const recommendation = state.revisionRecommendations.find((item) => item.id === selectedRecommendationId);
+    if (!recommendation) throw new Error("请至少选择一项改进建议后再生成草稿");
+    state.revisionDraft = createCreativeRevisionDraft(state.analysis, {
+      selectedRecommendationIds: [recommendation.id],
+      testVariables: [recommendation.variableId],
+      parentVersionId: $("#revision-parent-version").value
+    });
+    state.revisionPreserved = false;
+    state.analysisHandoffCache = null;
+    state.handoffState = "idle";
+    renderRevisionDraft(state.revisionDraft);
+    setFeedback("#revision-selection-message", "#revision-selection-error", {
+      status: `已围绕“${state.revisionDraft.primaryVariable.label}”生成单变量可拍草稿；请逐项编辑并人工确认。`
+    });
+    setFlowFeedback({ status: "可拍草稿已生成；下一步逐项核对并明确确认，确认前不会发送。" });
+    updateWorkbenchOverview();
+    moveToFlowTarget("structure", "revision-draft-title");
+  } catch (error) {
+    const message = error.message || "无法生成可拍任务草稿";
+    setFeedback("#revision-selection-message", "#revision-selection-error", { error: message });
+    setFlowFeedback({ error: `${message}；结构分析和当前选择仍保留。` });
+    updateWorkbenchOverview();
+  }
+});
+
+$("#revision-parent-version").addEventListener("input", () => {
+  if (!state.revisionDraft) return;
+  clearRevisionDraft();
+  setFeedback("#revision-selection-message", "#revision-selection-error", {
+    status: "父版本编号已改变，旧草稿已失效；请重新生成以建立正确的版本关系。"
+  });
+  updateWorkbenchOverview();
+});
+
+for (const control of document.querySelectorAll("[data-revision-field]")) {
+  control.addEventListener("input", () => {
+    if (!state.revisionDraft) return;
+    state.revisionPreserved = false;
+    state.analysisHandoffCache = null;
+    state.handoffState = "idle";
+    setRevisionConfirmation(false);
+    setFeedback("#revision-selection-message", "#revision-selection-error", {
+      status: "草稿已编辑，之前的确认与交接缓存已取消；请完成核对后重新确认。"
+    });
+    updateWorkbenchOverview();
+  });
+}
+
+$("#confirm-revision-draft").addEventListener("change", (event) => {
+  setFeedback("#revision-selection-message", "#revision-selection-error");
+  if (!event.target.checked) {
+    setRevisionConfirmation(false);
+    setFlowFeedback({ status: "已取消草稿确认；当前内容不会发送到编导台。" });
+    updateWorkbenchOverview();
+    return;
+  }
+  try {
+    currentRevisionDraft();
+    setRevisionConfirmation(true);
+    setFeedback("#revision-selection-message", "#revision-selection-error", {
+      status: "已确认当前草稿；如再次编辑会自动取消确认。"
+    });
+    setFlowFeedback({ status: "草稿已明确确认；现在可以发送到编导台或导出 V2 交接包。" });
+  } catch (error) {
+    setRevisionConfirmation(false);
+    const message = error.message || "草稿字段校验失败";
+    setFeedback("#revision-selection-message", "#revision-selection-error", { error: message });
+    setFlowFeedback({ error: `${message}；请修正草稿后重新确认。` });
+  }
+  updateWorkbenchOverview();
+});
+
+$("#export-revision-json").addEventListener("click", () => {
+  try {
+    const draft = currentRevisionDraft();
+    download(`${draft.testId}.json`, JSON.stringify(draft, null, 2));
+    state.revisionPreserved = true;
+    setFeedback("#revision-selection-message", "#revision-selection-error", { status: "可拍任务草稿 JSON 已导出。" });
+  } catch (error) {
+    setFeedback("#revision-selection-message", "#revision-selection-error", { error: error.message || "无法导出草稿" });
+  }
+});
+
+$("#export-revision-md").addEventListener("click", () => {
+  try {
+    const draft = currentRevisionDraft();
+    download(`${draft.testId}.md`, creativeRevisionToMarkdown(draft), "text/markdown;charset=utf-8");
+    state.revisionPreserved = true;
+    setFeedback("#revision-selection-message", "#revision-selection-error", { status: "可拍任务草稿 Markdown 已导出。" });
+  } catch (error) {
+    setFeedback("#revision-selection-message", "#revision-selection-error", { error: error.message || "无法导出草稿" });
+  }
+});
+
 function currentAnalysisHandoff() {
   if (!state.analysis) throw new Error("请先完成当前转写文本的结构分析");
-  state.analysisHandoffCache = analysisHandoffForAnalysis(state.analysisHandoffCache, state.analysis);
+  if (!state.revisionConfirmed) throw new Error("请先逐项核对并明确确认当前可拍任务草稿");
+  const revisionDraft = currentRevisionDraft();
+  state.analysisHandoffCache = analysisHandoffForAnalysis(state.analysisHandoffCache, state.analysis, { revisionDraft });
   return state.analysisHandoffCache.handoff;
 }
 
 $("#send-analysis-handoff").addEventListener("click", async () => {
   if (!state.analysis) return;
   setFeedback("#structure-message", "#structure-error");
-  const openPromise = openAnalysisHandoffSidePanel(chrome.sidePanel, chrome.windows);
+  let openPromise = null;
   try {
     const handoff = currentAnalysisHandoff();
+    openPromise = openAnalysisHandoffSidePanel(chrome.sidePanel, chrome.windows);
     const queued = await enqueueAnalysisHandoff(chrome.storage?.session, handoff);
     const opened = await openPromise;
     state.handoffState = queued.status === "conflict" ? "conflict" : "sent";
     state.analysisPreserved ||= queued.status !== "conflict";
+    state.revisionPreserved ||= queued.status !== "conflict";
     const queueMessage = queued.status === "conflict"
       ? "会话收件箱已有另一份待确认结果，未覆盖；请先在编导台处理。"
       : queued.status === "duplicate"
-      ? "同一分析结果已在会话收件箱中，无需重复发送。"
+      ? "同一可拍任务草稿已在会话收件箱中，无需重复发送。"
       : queued.status === "replaced-expired"
-      ? "已清理过期结果并发送新的分析建议。"
+      ? "已清理过期结果并发送新的可拍任务草稿。"
       : queued.status === "replaced-invalid"
-      ? "已清理损坏的会话记录并发送新的分析建议。"
-      : "分析建议已发送到当前浏览器会话，等待编导确认。";
+      ? "已清理损坏的会话记录并发送新的可拍任务草稿。"
+      : "可拍任务草稿已发送到当前浏览器会话，等待侧边栏预览。";
     setFeedback("#structure-message", "#structure-error", {
       status: `${queueMessage}${opened.opened ? " 编导台侧边栏已打开。" : ` ${opened.reason}`}`
     });
     setFlowFeedback({
       status: queued.status === "conflict"
         ? "编导台已有另一份待确认结果，本次未覆盖；请先处理收件箱。"
-        : `分析摘要已安全排队。${opened.opened ? "编导台已打开。" : opened.reason}`
+        : `可拍任务草稿已安全排队。${opened.opened ? "编导台已打开。" : opened.reason}`
     });
     updateWorkbenchOverview();
   } catch (error) {
-    const opened = await openPromise;
+    const opened = openPromise ? await openPromise : { opened: false };
     state.handoffState = "failed";
+    if (!openPromise) setRevisionConfirmation(false);
     setFeedback("#structure-message", "#structure-error", {
       error: `${error.message || "无法发送到编导台"}${opened.opened ? "；侧边栏已打开，可改用 JSON 交接包" : "；请改用 JSON 交接包"}`
     });
-    setFlowFeedback({ error: `${error.message || "无法发送到编导台"}；分析结果仍保留，可重试或导出 JSON。` });
+    setFlowFeedback({ error: `${error.message || "无法发送到编导台"}；分析与草稿仍保留，可修正后重试或导出 JSON。` });
     updateWorkbenchOverview();
   }
 });
@@ -907,10 +1181,11 @@ $("#export-analysis-handoff").addEventListener("click", () => {
     const handoff = currentAnalysisHandoff();
     download("qianchuan-analysis-handoff.json", JSON.stringify(handoff, null, 2));
     state.analysisPreserved = true;
+    state.revisionPreserved = true;
     setFeedback("#structure-message", "#structure-error", {
-      status: "备用 JSON 交接包已导出：不含原始全文、文件名或本机路径；可在侧边栏手动导入。"
+      status: "备用 V2 JSON 交接包已导出：包含白名单可拍草稿，不含原始全文、文件名或本机路径；可在侧边栏手动导入。"
     });
-    setFlowFeedback({ status: "备用 JSON 交接包已导出；当前分析结果仍保留。" });
+    setFlowFeedback({ status: "备用 V2 JSON 交接包已导出；当前分析与草稿仍保留。" });
   } catch (error) {
     const message = error.message || "无法生成编导台交接包";
     setFeedback("#structure-message", "#structure-error", { error: message });
@@ -931,4 +1206,5 @@ chrome.storage?.onChanged?.addListener((changes, areaName) => {
 
 renderMaterialSelection();
 updateTranscriptionReadiness();
+renderRevisionRecommendations();
 updateWorkbenchOverview();
