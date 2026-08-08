@@ -10,18 +10,30 @@ import {
 import { isSupportedVideoFile, transcodeProgress, validateLocalVideoBatch, validateTranscodeResult } from "./src/transcode.js";
 import { formatLocalBytes } from "./src/local-file-guard.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
-import { buildWorkbenchOverview } from "./src/workbench-overview.js";
-import { analysisHandoffForAnalysis, enqueueAnalysisHandoff, openAnalysisHandoffSidePanel } from "./src/analysis-handoff-inbox.js";
+import { buildWorkbenchOverview, buildWorkbenchResetPrompt } from "./src/workbench-overview.js";
+import {
+  ANALYSIS_HANDOFF_INBOX_KEY,
+  analysisHandoffForAnalysis,
+  enqueueAnalysisHandoff,
+  openAnalysisHandoffSidePanel
+} from "./src/analysis-handoff-inbox.js";
 
 const $ = (selector) => document.querySelector(selector);
 const VERSION = chrome.runtime.getManifest().version;
 const state = {
+  entryMode: "",
   files: [],
   processingManifest: null,
+  processingPrepared: false,
+  processingExported: false,
   transcriptionPlan: null,
+  transcriptionExported: false,
   transcriptSourceName: "手动粘贴文本",
   analysis: null,
-  analysisHandoffCache: null
+  analysisPreserved: false,
+  analysisHandoffCache: null,
+  handoffState: "idle",
+  flowModel: null
 };
 
 function setStatus(selector, text, good = false) {
@@ -39,6 +51,10 @@ function setNodeText(selector, value) {
 function setFeedback(statusSelector, errorSelector, { status = "", error = "" } = {}) {
   setNodeText(statusSelector, status);
   setNodeText(errorSelector, error);
+}
+
+function setFlowFeedback({ status = "", error = "" } = {}) {
+  setFeedback("#workbench-flow-message", "#workbench-flow-error", { status, error });
 }
 
 function downloadBlob(name, blob) {
@@ -119,25 +135,42 @@ function updateWorkbenchOverview() {
   const analysis = state.analysis;
   const progress = manifest ? transcodeProgress(manifest.tasks) : null;
   const model = buildWorkbenchOverview({
+    entryMode: state.entryMode,
     filesCount: state.files.length,
     sourceReady: setup.ready,
     missingSourceField: setup.missingField,
     processing: progress,
+    processingPrepared: state.processingPrepared,
     transcriptLength,
-    analysis: analysis?.summary || null
+    analysis: analysis?.summary || null,
+    handoffState: state.handoffState
   });
+  state.flowModel = model;
   for (const [id, step] of Object.entries(model.steps)) setOverviewStep(id, step.status, step.text, model.current === id);
   setNodeText("#workbench-overview-summary", model.summary);
+  setNodeText("#workbench-entry-note", model.entryNotice);
+  const phaseNode = $("#workbench-flow-state");
+  setNodeText("#workbench-flow-state", model.phase.label);
+  phaseNode.dataset.tone = model.phase.tone;
+  setNodeText("#workbench-next-hint", model.phase.guidance);
+  setNodeText("#workbench-progress-label", `${model.phase.progress}%`);
+  $("#workbench-progress-bar").style.width = `${model.phase.progress}%`;
+  const progressNode = $("#workbench-progress");
+  progressNode.setAttribute("aria-valuenow", String(model.phase.progress));
+  progressNode.setAttribute("aria-valuetext", `${model.phase.label}，完成 ${model.phase.progress}%`);
   const nextButton = $("#workbench-next-step");
+  nextButton.dataset.action = model.next.type;
   nextButton.dataset.target = model.next.target;
   nextButton.dataset.focus = model.next.focus;
+  nextButton.dataset.control = model.next.control;
   nextButton.textContent = model.next.label;
+  nextButton.disabled = Boolean(model.next.disabled);
+  $("#workbench-paste-entry").hidden = state.entryMode !== "transcript" || transcriptLength > 0;
 }
 
-$("#workbench-next-step").addEventListener("click", (event) => {
-  const button = event.currentTarget;
-  const section = document.getElementById(button.dataset.target);
-  const focusTarget = document.getElementById(button.dataset.focus);
+function moveToFlowTarget(targetId, focusId) {
+  const section = document.getElementById(targetId);
+  const focusTarget = document.getElementById(focusId);
   window.requestAnimationFrame(() => {
     const target = focusTarget || section;
     focusTarget?.focus();
@@ -146,6 +179,177 @@ $("#workbench-next-step").addEventListener("click", (event) => {
       block: focusTarget ? "center" : "start"
     });
   });
+}
+
+$("#workbench-next-step").addEventListener("click", async () => {
+  const action = state.flowModel?.next;
+  if (!action) return;
+  setFlowFeedback();
+  if (action.type === "focus") {
+    moveToFlowTarget(action.target, action.focus);
+    return;
+  }
+  if (action.type === "open-sidepanel") {
+    const opened = await openAnalysisHandoffSidePanel(chrome.sidePanel, chrome.windows);
+    setFlowFeedback(opened.opened
+      ? { status: "编导台侧边栏已打开；请预览并确认待处理结果。" }
+      : { error: opened.reason });
+    moveToFlowTarget(action.target, action.focus);
+    return;
+  }
+  const control = document.getElementById(action.control);
+  if (!control) {
+    setFlowFeedback({ error: "当前下一步控件不可用；页面状态未丢失，请重新加载扩展后重试。" });
+    return;
+  }
+  control.click();
+  moveToFlowTarget(action.target, action.focus);
+});
+
+function selectEntryMode(mode) {
+  state.entryMode = mode;
+  for (const input of document.querySelectorAll('input[name="workbench-entry-mode"]')) input.checked = input.value === mode;
+}
+
+document.querySelectorAll('input[name="workbench-entry-mode"]').forEach((input) => {
+  input.addEventListener("change", (event) => {
+    if (!event.target.checked) return;
+    const previous = state.entryMode;
+    selectEntryMode(event.target.value);
+    const preserved = [];
+    if (state.files.length) preserved.push(`${state.files.length} 个视频选择`);
+    if (state.processingManifest) preserved.push("处理任务");
+    if ($("#transcript-text").value.trim()) preserved.push("转写正文");
+    if (state.analysis) preserved.push("分析结果");
+    const label = state.entryMode === "transcript" ? "分析已有转写" : "处理本地视频";
+    setFlowFeedback({
+      status: `${previous ? "已切换" : "已选择"}“${label}”入口。${preserved.length ? `已保留当前${preserved.join("、")}；顶部会优先遵循已完成的真实状态。` : "没有读取、上传或清空任何内容。"}`
+    });
+    updateWorkbenchOverview();
+  });
+});
+
+$("#workbench-paste-entry").addEventListener("click", () => {
+  selectEntryMode("transcript");
+  setFlowFeedback({ status: "已定位到转写粘贴区；文本只在当前工作台页面中处理。" });
+  updateWorkbenchOverview();
+  moveToFlowTarget("transcription", "transcript-text");
+});
+
+function workbenchResetSnapshot() {
+  const hasSetupValues = Boolean(
+    $("#material-source-root").value.trim()
+    || $("#material-output-root").value.trim()
+    || $("#douyin-source-note").value.trim()
+    || $("#material-authorization").checked
+    || !["", "ffmpeg"].includes($("#material-ffmpeg-path").value.trim())
+    || $("#transcription-mode").value !== "text_import"
+    || $("#transcription-language").value !== "zh"
+    || $("#whisper-executable").value.trim()
+    || $("#whisper-model").value.trim()
+  );
+  const feedbackSelectors = [
+    "#workbench-flow-error",
+    "#source-message", "#source-error",
+    "#processing-message", "#processing-error",
+    "#transcription-message", "#transcription-error",
+    "#structure-message", "#structure-error"
+  ];
+  return {
+    entryMode: state.entryMode,
+    filesCount: state.files.length,
+    processingTaskCount: state.processingManifest?.tasks?.length || 0,
+    processingExported: state.processingExported,
+    transcriptionTaskCount: state.transcriptionPlan?.tasks?.length || 0,
+    transcriptionExported: state.transcriptionExported,
+    transcriptLength: $("#transcript-text").value.trim().length,
+    hasAnalysis: Boolean(state.analysis),
+    analysisPreserved: state.analysisPreserved,
+    handoffState: state.handoffState,
+    hasSetupValues,
+    hasFeedback: feedbackSelectors.some((selector) => $(selector).textContent.trim())
+  };
+}
+
+function resetWorkbenchSession() {
+  state.entryMode = "";
+  state.files = [];
+  state.processingManifest = null;
+  state.processingPrepared = false;
+  state.processingExported = false;
+  state.transcriptionPlan = null;
+  state.transcriptionExported = false;
+  state.transcriptSourceName = "手动粘贴文本";
+  state.analysis = null;
+  state.analysisPreserved = false;
+  state.analysisHandoffCache = null;
+  state.handoffState = "idle";
+  state.flowModel = null;
+
+  for (const input of document.querySelectorAll('input[type="file"]')) input.value = "";
+  selectEntryMode("");
+  $("#material-source-root").value = "";
+  $("#material-output-root").value = "";
+  $("#material-ffmpeg-path").value = "ffmpeg";
+  $("#material-authorization").checked = false;
+  $("#douyin-source-note").value = "";
+  $("#transcription-mode").value = "text_import";
+  $("#transcription-language").value = "zh";
+  $("#whisper-executable").value = "";
+  $("#whisper-model").value = "";
+  $("#transcript-text").value = "";
+
+  $("#processing-queue").hidden = true;
+  $("#processing-task-list").replaceChildren();
+  $("#create-material-tasks").setAttribute("aria-expanded", "false");
+  setNodeText("#processing-progress-label", "0 / 0");
+  setNodeText("#processing-queue-status", "浏览器仅生成任务；请在本机运行执行器后导入结果。");
+  $("#processing-progress-bar").style.width = "0%";
+  const processingProgress = $("#processing-progress");
+  processingProgress.setAttribute("aria-valuemax", "0");
+  processingProgress.setAttribute("aria-valuenow", "0");
+  processingProgress.setAttribute("aria-valuetext", "尚未生成任务");
+
+  $("#whisper-config").hidden = true;
+  $("#transcription-mode").setAttribute("aria-expanded", "false");
+  $("#transcription-language").disabled = true;
+  $("#transcription-plan-actions").hidden = true;
+  $("#structure-result").hidden = true;
+  $("#analyze-transcript").setAttribute("aria-expanded", "false");
+  setNodeText("#structure-score", "0%");
+  setNodeText("#structure-summary", "—");
+  $("#coverage-grid").replaceChildren();
+  $("#structure-segments").replaceChildren();
+  $("#structure-recommendations").replaceChildren();
+  setNodeText("#structure-disclaimer", "");
+
+  for (const [statusSelector, errorSelector] of [
+    ["#source-message", "#source-error"],
+    ["#processing-message", "#processing-error"],
+    ["#transcription-message", "#transcription-error"],
+    ["#structure-message", "#structure-error"]
+  ]) setFeedback(statusSelector, errorSelector);
+  setFlowFeedback();
+
+  renderMaterialSelection();
+  updateTranscriptionReadiness();
+  setStatus("#processing-status", "尚未生成");
+  setStatus("#transcript-status", "等待文本");
+  setStatus("#structure-status", "尚未分析");
+  updateWorkbenchOverview();
+  setFlowFeedback({ status: "已开始新一轮；只清空了当前工作台页面内存，原始文件、侧边栏和浏览器本地工作区均未修改。" });
+  moveToFlowTarget("", "workbench-entry-video");
+}
+
+$("#reset-workbench-session").addEventListener("click", () => {
+  const resetPlan = buildWorkbenchResetPrompt(workbenchResetSnapshot());
+  if (!resetPlan.hasWork) {
+    setFlowFeedback({ status: "当前已经是新一轮的初始状态；请选择视频或已有转写入口。" });
+    moveToFlowTarget("", "workbench-entry-video");
+    return;
+  }
+  if (!window.confirm(resetPlan.message)) return;
+  resetWorkbenchSession();
 });
 
 document.querySelectorAll("label.file-card[for]").forEach((trigger) => {
@@ -166,7 +370,10 @@ function fileIdentity(file) {
 function invalidateProcessing(message = "文件或参数已变化，请重新生成任务。") {
   const hadManifest = Boolean(state.processingManifest);
   state.processingManifest = null;
+  state.processingPrepared = false;
+  state.processingExported = false;
   state.transcriptionPlan = null;
+  state.transcriptionExported = false;
   $("#processing-queue").hidden = true;
   $("#create-material-tasks").setAttribute("aria-expanded", "false");
   $("#transcription-plan-actions").hidden = true;
@@ -227,7 +434,9 @@ $("#material-video-files").addEventListener("change", (event) => {
   if (!incoming.length) return;
   const unsupported = incoming.filter((file) => !isSupportedVideoFile(file));
   if (unsupported.length) {
-    setFeedback("#source-message", "#source-error", { error: `所选内容包含 ${unsupported.length} 个不支持的文件，本次没有加入任何文件。` });
+    const message = `所选内容包含 ${unsupported.length} 个不支持的文件，本次没有加入任何文件。`;
+    setFeedback("#source-message", "#source-error", { error: message });
+    setFlowFeedback({ error: message });
     return;
   }
   const known = new Set(state.files.map(fileIdentity));
@@ -241,14 +450,19 @@ $("#material-video-files").addEventListener("change", (event) => {
   try {
     validateLocalVideoBatch(nextFiles, MATERIAL_VIDEO_BATCH_LIMITS);
   } catch (error) {
-    setFeedback("#source-message", "#source-error", { error: error.message || "所选视频超过本地处理保护上限" });
+    const message = error.message || "所选视频超过本地处理保护上限";
+    setFeedback("#source-message", "#source-error", { error: message });
+    setFlowFeedback({ error: message });
     return;
   }
   const added = nextFiles.length - state.files.length;
+  selectEntryMode("video");
   state.files = nextFiles;
   invalidateProcessing();
   renderMaterialSelection();
-  setFeedback("#source-message", "#source-error", { status: added ? `${added} 个视频已加入当前选择。` : "所选视频已在当前选择中，没有重复加入。" });
+  const message = added ? `${added} 个视频已加入当前选择。` : "所选视频已在当前选择中，没有重复加入。";
+  setFeedback("#source-message", "#source-error", { status: message });
+  setFlowFeedback({ status: `${message} 请按顶部主操作继续。` });
 });
 
 $("#clear-material-selection").addEventListener("click", () => {
@@ -260,10 +474,12 @@ $("#clear-material-selection").addEventListener("click", () => {
   invalidateProcessing("当前文件选择已清空，旧任务清单已失效。");
   renderMaterialSelection();
   setFeedback("#source-message", "#source-error", { status: "当前浏览器会话中的文件选择已清空；原始文件未被修改。" });
+  setFlowFeedback({ status: "素材选择已清空；原始文件未被修改。" });
 });
 
 for (const id of ["material-source-root", "material-output-root", "material-ffmpeg-path", "material-authorization", "douyin-source-note"]) {
   $(`#${id}`).addEventListener("input", () => {
+    setFlowFeedback();
     invalidateProcessing();
     updateMaterialReadiness();
   });
@@ -347,16 +563,25 @@ $("#create-material-tasks").addEventListener("click", () => {
   setFeedback("#source-message", "#source-error");
   setFeedback("#processing-message", "#processing-error");
   try {
+    selectEntryMode("video");
     state.processingManifest = createMaterialProcessingManifest(state.files, processingSettings(), { creatorVersion: VERSION });
+    state.processingPrepared = false;
+    state.processingExported = false;
     state.transcriptionPlan = null;
+    state.transcriptionExported = false;
     $("#transcription-plan-actions").hidden = true;
     renderProcessingQueue();
     setFeedback("#processing-message", "#processing-error", { status: `已生成 ${state.processingManifest.tasks.length} 个本机待执行任务；浏览器尚未运行任何程序，也未上传文件。` });
+    setFlowFeedback({ status: `已生成 ${state.processingManifest.tasks.length} 个受限任务；下一步请导出执行清单。` });
     updateTranscriptionReadiness();
   } catch (error) {
     state.processingManifest = null;
+    state.processingPrepared = false;
+    state.processingExported = false;
     renderProcessingQueue();
-    setFeedback("#processing-message", "#processing-error", { error: error.message || "无法生成本地处理任务" });
+    const message = error.message || "无法生成本地处理任务";
+    setFeedback("#processing-message", "#processing-error", { error: message });
+    setFlowFeedback({ error: `${message}；已保留素材选择和参数，可修正后重试。` });
     updateTranscriptionReadiness();
   }
 });
@@ -365,16 +590,24 @@ $("#copy-material-commands").addEventListener("click", async () => {
   if (!state.processingManifest) return;
   try {
     await navigator.clipboard.writeText(state.processingManifest.tasks.map((task) => task.powerShellCommand).join("\r\n\r\n"));
+    state.processingPrepared = true;
     setFeedback("#processing-message", "#processing-error", { status: "固定参数的本地 FFmpeg 命令已复制；执行前请再次核对路径。" });
+    setFlowFeedback({ status: "本机命令已复制；执行完成后按顶部主操作导入结果。" });
+    updateWorkbenchOverview();
   } catch {
     setFeedback("#processing-message", "#processing-error", { error: "复制失败，请改为导出任务清单并使用开源执行器。" });
+    setFlowFeedback({ error: "复制失败；任务仍保留，请改为导出任务清单。" });
   }
 });
 
 $("#export-material-manifest").addEventListener("click", () => {
   if (!state.processingManifest) return;
   download("qianchuan-material-analysis-tasks.json", JSON.stringify(state.processingManifest, null, 2));
+  state.processingPrepared = true;
+  state.processingExported = true;
   setFeedback("#processing-message", "#processing-error", { status: "任务清单已导出；其中包含本机路径，请仅在可信设备保存。" });
+  setFlowFeedback({ status: "执行清单已导出；请在本机完成处理后按顶部主操作导入结果。" });
+  updateWorkbenchOverview();
 });
 
 $("#download-material-worker").addEventListener("click", async () => {
@@ -396,13 +629,22 @@ $("#material-result-file").addEventListener("change", async (event) => {
     const results = validateTranscodeResult(parseJsonDocument(await file.text(), "本机执行结果"), state.processingManifest);
     const byId = new Map(results.map((result) => [result.id, result]));
     state.processingManifest.tasks = state.processingManifest.tasks.map((task) => ({ ...task, ...(byId.get(task.id) || {}) }));
+    state.processingExported = false;
     renderProcessingQueue();
     const progress = transcodeProgress(state.processingManifest.tasks);
-    setFeedback("#processing-message", "#processing-error", progress.failed || progress.skipped
+    const feedback = progress.failed || progress.skipped
       ? { error: `已导入：${progress.completed} 成功，${progress.failed} 失败，${progress.skipped} 跳过；异常原因显示在任务下方。` }
-      : { status: `已导入：${progress.completed} 个任务完成。` });
+      : { status: `已导入：${progress.completed} 个任务完成。` };
+    setFeedback("#processing-message", "#processing-error", feedback);
+    setFlowFeedback(progress.failed || progress.skipped
+      ? { error: `处理结果有 ${progress.failed + progress.skipped} 项异常；任务未丢失，可修正后重新导入。` }
+      : progress.completed === progress.total
+        ? { status: "本机处理已全部完成；下一步导入转写文本。" }
+        : { status: `已导入 ${progress.finished}/${progress.total} 项结果；请继续完成并导入剩余结果。` });
   } catch (error) {
-    setFeedback("#processing-message", "#processing-error", { error: error.message || "执行结果无法导入" });
+    const message = error.message || "执行结果无法导入";
+    setFeedback("#processing-message", "#processing-error", { error: message });
+    setFlowFeedback({ error: `${message}；当前任务清单和已导入状态保持不变。` });
   }
 });
 
@@ -420,6 +662,7 @@ function updateTranscriptionReadiness() {
 }
 
 function invalidateTranscriptionPlan() {
+  state.transcriptionExported = false;
   if (state.transcriptionPlan) {
     state.transcriptionPlan = null;
     $("#transcription-plan-actions").hidden = true;
@@ -428,25 +671,28 @@ function invalidateTranscriptionPlan() {
   updateTranscriptionReadiness();
 }
 
-function syncTranscriptionMode() {
+function syncTranscriptionMode({ announce = true } = {}) {
   const localEngine = $("#transcription-mode").value === "whisper_cpp";
   $("#whisper-config").hidden = !localEngine;
   $("#transcription-mode").setAttribute("aria-expanded", String(localEngine));
   $("#transcription-language").disabled = !localEngine;
   if (!localEngine) {
     state.transcriptionPlan = null;
+    state.transcriptionExported = false;
     $("#transcription-plan-actions").hidden = true;
-    setFeedback("#transcription-message", "#transcription-error", { status: "可直接导入或粘贴本机生成的文本，不需要配置执行引擎。" });
+    setFeedback("#transcription-message", "#transcription-error", announce
+      ? { status: "可直接导入或粘贴本机生成的文本，不需要配置执行引擎。" }
+      : {});
   } else {
     setFeedback("#transcription-message", "#transcription-error");
   }
   updateTranscriptionReadiness();
 }
-$("#transcription-mode").addEventListener("change", syncTranscriptionMode);
+$("#transcription-mode").addEventListener("change", () => syncTranscriptionMode());
 for (const id of ["whisper-executable", "whisper-model", "transcription-language"]) {
   $(`#${id}`).addEventListener("input", invalidateTranscriptionPlan);
 }
-syncTranscriptionMode();
+syncTranscriptionMode({ announce: false });
 
 $("#create-transcription-plan").addEventListener("click", () => {
   setFeedback("#transcription-message", "#transcription-error");
@@ -457,10 +703,12 @@ $("#create-transcription-plan").addEventListener("click", () => {
       modelPath: $("#whisper-model").value,
       language: $("#transcription-language").value
     });
+    state.transcriptionExported = false;
     $("#transcription-plan-actions").hidden = false;
     setFeedback("#transcription-message", "#transcription-error", { status: `已生成 ${state.transcriptionPlan.tasks.length} 个固定参数本机转写任务；请在音频提取完成后执行。` });
   } catch (error) {
     state.transcriptionPlan = null;
+    state.transcriptionExported = false;
     $("#transcription-plan-actions").hidden = true;
     setFeedback("#transcription-message", "#transcription-error", { error: error.message || "无法生成本地转写任务" });
   }
@@ -479,6 +727,7 @@ $("#copy-transcription-commands").addEventListener("click", async () => {
 $("#export-transcription-plan").addEventListener("click", () => {
   if (!state.transcriptionPlan) return;
   download("qianchuan-local-transcription-tasks.json", JSON.stringify(state.transcriptionPlan, null, 2));
+  state.transcriptionExported = true;
   setFeedback("#transcription-message", "#transcription-error", { status: "本地转写任务清单已导出；其中包含本机路径，请仅在可信设备保存。" });
 });
 
@@ -489,28 +738,39 @@ $("#transcript-file").addEventListener("change", async (event) => {
   try {
     validateNonMediaImport(file, "transcript");
     const text = transcriptTextFromDocument(await file.text());
+    selectEntryMode("transcript");
     $("#transcript-text").value = text;
     state.transcriptSourceName = file.name;
     setStatus("#transcript-status", `${text.length.toLocaleString("zh-CN")} 字符`, true);
     state.analysis = null;
+    state.analysisPreserved = false;
     state.analysisHandoffCache = null;
+    state.handoffState = "idle";
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "尚未分析");
     setFeedback("#transcription-message", "#transcription-error", { status: "文本已在本地读取；时间码与字幕序号已清理。" });
+    setFlowFeedback({ status: "转写文本已在本地读取；下一步分析文案结构。" });
     updateWorkbenchOverview();
   } catch (error) {
-    setFeedback("#transcription-message", "#transcription-error", { error: error.message || "无法读取转写文本" });
+    const message = error.message || "无法读取转写文本";
+    setFeedback("#transcription-message", "#transcription-error", { error: message });
+    setFlowFeedback({ error: `${message}；当前处理任务和已有文本保持不变。` });
   }
 });
 
 $("#transcript-text").addEventListener("input", (event) => {
   const length = event.target.value.trim().length;
-  if (length) state.transcriptSourceName = "手动粘贴文本";
+  if (length) {
+    state.transcriptSourceName = "手动粘贴文本";
+    selectEntryMode("transcript");
+  }
   setStatus("#transcript-status", length ? `${length.toLocaleString("zh-CN")} 字符` : "等待文本", length > 0);
   if (state.analysis) {
     state.analysis = null;
+    state.analysisPreserved = false;
     state.analysisHandoffCache = null;
+    state.handoffState = "idle";
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "需要重新分析");
@@ -560,16 +820,23 @@ $("#analyze-transcript").addEventListener("click", () => {
   setFeedback("#structure-message", "#structure-error");
   try {
     state.analysis = analyzeTranscriptStructure($("#transcript-text").value, { sourceName: state.transcriptSourceName });
+    state.analysisPreserved = false;
     state.analysisHandoffCache = null;
+    state.handoffState = "idle";
     renderStructureAnalysis(state.analysis);
     setFeedback("#structure-message", "#structure-error", { status: "结构分析已在浏览器本地完成；结果来自确定性规则，不代表投放效果预测。" });
+    setFlowFeedback({ status: "结构分析已完成；下一步发送受限摘要到编导台。" });
   } catch (error) {
     state.analysis = null;
+    state.analysisPreserved = false;
     state.analysisHandoffCache = null;
+    state.handoffState = "idle";
     $("#structure-result").hidden = true;
     $("#analyze-transcript").setAttribute("aria-expanded", "false");
     setStatus("#structure-status", "尚未分析");
-    setFeedback("#structure-message", "#structure-error", { error: error.message || "无法分析转写文本" });
+    const message = error.message || "无法分析转写文本";
+    setFeedback("#structure-message", "#structure-error", { error: message });
+    setFlowFeedback({ error: `${message}；转写正文仍保留，可修正后重试。` });
     updateWorkbenchOverview();
   }
 });
@@ -577,12 +844,14 @@ $("#analyze-transcript").addEventListener("click", () => {
 $("#export-structure-json").addEventListener("click", () => {
   if (state.analysis) {
     download("qianchuan-material-structure.json", JSON.stringify(state.analysis, null, 2));
+    state.analysisPreserved = true;
     setFeedback("#structure-message", "#structure-error", { status: "JSON 结构分析已导出。" });
   }
 });
 $("#export-structure-md").addEventListener("click", () => {
   if (state.analysis) {
     download("qianchuan-material-structure.md", materialAnalysisToMarkdown(state.analysis), "text/markdown;charset=utf-8");
+    state.analysisPreserved = true;
     setFeedback("#structure-message", "#structure-error", { status: "Markdown 结构分析已导出。" });
   }
 });
@@ -601,6 +870,8 @@ $("#send-analysis-handoff").addEventListener("click", async () => {
     const handoff = currentAnalysisHandoff();
     const queued = await enqueueAnalysisHandoff(chrome.storage?.session, handoff);
     const opened = await openPromise;
+    state.handoffState = queued.status === "conflict" ? "conflict" : "sent";
+    state.analysisPreserved ||= queued.status !== "conflict";
     const queueMessage = queued.status === "conflict"
       ? "会话收件箱已有另一份待确认结果，未覆盖；请先在编导台处理。"
       : queued.status === "duplicate"
@@ -613,11 +884,20 @@ $("#send-analysis-handoff").addEventListener("click", async () => {
     setFeedback("#structure-message", "#structure-error", {
       status: `${queueMessage}${opened.opened ? " 编导台侧边栏已打开。" : ` ${opened.reason}`}`
     });
+    setFlowFeedback({
+      status: queued.status === "conflict"
+        ? "编导台已有另一份待确认结果，本次未覆盖；请先处理收件箱。"
+        : `分析摘要已安全排队。${opened.opened ? "编导台已打开。" : opened.reason}`
+    });
+    updateWorkbenchOverview();
   } catch (error) {
     const opened = await openPromise;
+    state.handoffState = "failed";
     setFeedback("#structure-message", "#structure-error", {
       error: `${error.message || "无法发送到编导台"}${opened.opened ? "；侧边栏已打开，可改用 JSON 交接包" : "；请改用 JSON 交接包"}`
     });
+    setFlowFeedback({ error: `${error.message || "无法发送到编导台"}；分析结果仍保留，可重试或导出 JSON。` });
+    updateWorkbenchOverview();
   }
 });
 
@@ -626,11 +906,26 @@ $("#export-analysis-handoff").addEventListener("click", () => {
   try {
     const handoff = currentAnalysisHandoff();
     download("qianchuan-analysis-handoff.json", JSON.stringify(handoff, null, 2));
+    state.analysisPreserved = true;
     setFeedback("#structure-message", "#structure-error", {
       status: "备用 JSON 交接包已导出：不含原始全文、文件名或本机路径；可在侧边栏手动导入。"
     });
+    setFlowFeedback({ status: "备用 JSON 交接包已导出；当前分析结果仍保留。" });
   } catch (error) {
-    setFeedback("#structure-message", "#structure-error", { error: error.message || "无法生成编导台交接包" });
+    const message = error.message || "无法生成编导台交接包";
+    setFeedback("#structure-message", "#structure-error", { error: message });
+    setFlowFeedback({ error: `${message}；当前分析结果未丢失。` });
+  }
+});
+
+chrome.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== "session" || !changes[ANALYSIS_HANDOFF_INBOX_KEY] || changes[ANALYSIS_HANDOFF_INBOX_KEY].newValue !== undefined) return;
+  if (state.handoffState === "conflict") {
+    state.handoffState = "idle";
+    setFlowFeedback({ status: "编导台待确认结果已处理；可以重新发送当前分析。" });
+    updateWorkbenchOverview();
+  } else if (state.handoffState === "sent") {
+    setFlowFeedback({ status: "编导台已消费本次交接结果；本轮工作已完成。" });
   }
 });
 
