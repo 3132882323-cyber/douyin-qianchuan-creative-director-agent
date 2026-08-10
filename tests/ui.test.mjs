@@ -55,7 +55,7 @@ test("guides the optional-task to review, generate and export flow", () => {
 });
 
 test("keeps narrow side panels and programmatic focus usable", () => {
-  assert.match(css, /min-width:\s*280px/u);
+  assert.match(css, /body\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden/iu);
   assert.match(css, /@media \(max-width:\s*400px\)/u);
   assert.match(css, /section\[tabindex="-1"\]:focus-visible/u);
   assert.match(css, /prefers-reduced-motion:\s*reduce/u);
@@ -64,6 +64,17 @@ test("keeps narrow side panels and programmatic focus usable", () => {
   assert.match(script, /target\.focus\(\);[\s\S]*target\.scrollIntoView/u);
   assert.doesNotMatch(script, /preventScroll/u);
   assert.match(css, /\.tag-editor \{ max-height: none;[\s\S]*overflow: visible;/u);
+});
+
+test("uses a readable black-and-white paper layout without changing workspace ids", () => {
+  assert.match(css, /color-scheme:\s*light/u);
+  assert.match(css, /--bg:\s*#ffffff/u);
+  assert.match(css, /\.primary\s*\{[^}]*background:\s*#111111[^}]*color:\s*#ffffff/iu);
+  assert.match(css, /\.form-grid\s*\{[^}]*grid-template-columns:\s*1fr/iu);
+  assert.doesNotMatch(css, /(?:linear|radial)-gradient/iu);
+  assert.doesNotMatch(css, /font-size:\s*[789]px/iu);
+  assert.match(html, /id="tab-task"[^>]*><span>01<\/span>任务<\/button>/u);
+  assert.match(html, /id="tab-library"[^>]*><span>04<\/span>素材<\/button>/u);
 });
 
 test("receives session handoffs without replacing a preview and only fills selected empty fields", () => {

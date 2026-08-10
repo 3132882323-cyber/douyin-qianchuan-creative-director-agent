@@ -31,6 +31,14 @@ test("uses the expanded responsive canvas without a page-level 920px floor", () 
   assert.match(css, /overflow-wrap:\s*anywhere/iu);
 });
 
+test("uses a white paper workspace with one black primary action", () => {
+  assert.match(css, /color-scheme:\s*light/u);
+  assert.match(css, /body\s*\{[^}]*background:\s*var\(--bg\)/iu);
+  assert.match(css, /\.primary\s*\{[^}]*background:\s*#111111[^}]*color:\s*#ffffff/iu);
+  assert.doesNotMatch(css, /(?:linear|radial)-gradient/iu);
+  assert.doesNotMatch(css, /box-shadow:\s*0\s+1[0-9]px/iu);
+});
+
 test("connects one primary flow action to real state-aware operations", () => {
   for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-flow-state", "workbench-next-step", "workbench-next-hint", "workbench-progress", "workbench-progress-label", "workbench-progress-bar", "workbench-flow-message", "workbench-flow-error", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
@@ -148,7 +156,8 @@ test("connects timed-source analysis to a single-variable editable revision draf
   assert.match(script, /#confirm-revision-draft"\)\.addEventListener\("change"/u);
   assert.match(script, /setRevisionConfirmation\(false\)/u);
   assert.match(script, /creativeRevisionWithEdits/u);
-  assert.match(css, /\.revision-fields\s*\{[^}]*repeat\(2,/iu);
+  assert.match(css, /\.revision-fields\s*\{[^}]*grid-template-columns:\s*1fr/iu);
+  assert.match(css, /\.revision-fields\s*\{[^}]*max-width:\s*980px/iu);
 });
 
 test("keeps every static workbench id selector connected", () => {
