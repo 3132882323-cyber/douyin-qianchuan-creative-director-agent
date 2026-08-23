@@ -10,7 +10,7 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.1.0</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.2.0</p>
         <h1>抖音千川素材编导</h1>
         <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
@@ -22,11 +22,25 @@
         <span><strong>打开素材处理与分析工作台</strong><small>深度处理自有视频 · 本地转写 · 文案结构分析</small></span>
         <b aria-hidden="true">↗</b>
       </a>
+      <section id="project-hub" class="project-hub" aria-labelledby="project-hub-label">
+        <div class="project-hub-copy">
+          <span id="project-hub-label">当前项目 · IndexedDB 本地保存</span>
+          <label class="sr-only" for="project-select">切换本地编导项目</label>
+          <select id="project-select" aria-describedby="project-local-meta" disabled><option>正在读取项目…</option></select>
+          <small id="project-local-meta">正在建立本地项目集合…</small>
+        </div>
+        <div class="project-hub-actions">
+          <button id="new-project" type="button" class="secondary" disabled>新建</button>
+          <button id="rename-project" type="button" class="secondary" disabled>重命名</button>
+        </div>
+        <p id="project-status" class="success" role="status" aria-live="polite"></p>
+        <p id="project-error" class="error" role="alert"></p>
+      </section>
       <section id="recent-task" class="recent-task" aria-labelledby="recent-task-label">
         <div class="recent-task-copy">
           <span id="recent-task-label">最近任务 · 仅本地</span>
           <strong id="recent-task-title">正在读取本地工作区…</strong>
-          <small id="recent-task-description">这里只恢复当前浏览器保存的最近一个编导项目。</small>
+          <small id="recent-task-description">正在读取当前浏览器中的本地编导项目。</small>
         </div>
         <button id="continue-recent-task" type="button" class="secondary" aria-describedby="recent-task-description" disabled>请稍候</button>
       </section>
@@ -278,6 +292,12 @@
           <label class="input-block">单条最低测试消耗（元）
             <input id="min-spend" type="number" value="300" min="1" step="50">
           </label>
+          <label class="input-block wide">父版本（可选）
+            <select id="parent-version" aria-describedby="parent-version-help" disabled>
+              <option value="">无（新测试起点）</option>
+            </select>
+            <small id="parent-version-help" class="helper">只有明确延续某个旧版本时才选择；系统不会自动把相关差异解释为因果。</small>
+          </label>
           <button id="generate-plan" type="button" class="primary wide" aria-describedby="plan-readiness" disabled>生成素材策略与拍摄任务</button>
           <p id="plan-error" class="error wide" role="alert"></p>
         </div>
@@ -300,6 +320,49 @@
           </div>
           <p id="copy-state" class="success" role="status"></p>
         </section>
+        <details id="experiment-loop" class="card experiment-loop" open>
+          <summary><span>测试版本链与结果回填</span><small>只按测试编号关联</small></summary>
+          <p class="helper">方案生成后保留测试编号、父版本和最低消耗。上线后导入 CSV / TSV 结果，形成“方案 → 执行 → 结果 → 下一版”的本地闭环。</p>
+          <div class="experiment-counts" aria-label="版本与结果数量">
+            <span id="version-count">0 个版本</span>
+            <span id="result-count">0 条结果</span>
+          </div>
+          <div class="experiment-toolbar">
+            <label class="experiment-filter" for="version-filter"><span>筛选版本</span>
+              <select id="version-filter" disabled>
+                <option value="all">全部版本</option>
+                <option value="pending">待回填</option>
+                <option value="insufficient">样本不足</option>
+                <option value="target_met">达到目标</option>
+                <option value="needs_review">需要复核</option>
+                <option value="quality_warning">口径提醒</option>
+              </select>
+            </label>
+            <div class="experiment-export-actions" aria-label="导出当前项目实验台账">
+              <button id="export-experiment-csv" type="button" class="secondary" disabled>台账 CSV</button>
+              <button id="export-experiment-json" type="button" class="secondary" disabled>台账 JSON</button>
+            </div>
+          </div>
+          <p id="experiment-summary" class="experiment-summary" role="status" aria-live="polite">尚无测试版本</p>
+          <div id="version-timeline" class="version-timeline"></div>
+          <label id="experiment-result-file-trigger" class="file-drop compact disabled" for="experiment-result-file">
+            <span class="file-icon">CSV</span>
+            <strong>回填已上线版本结果</strong>
+            <small>必需：测试编号、消耗；可选：ROI、成交金额、展示、点击、转化、CTR、CVR、3 秒播放率、完播率。最大 2 MB / 1,000 行。</small>
+          </label>
+          <input id="experiment-result-file" type="file" accept=".csv,text/csv,.tsv,text/tab-separated-values" hidden disabled>
+          <section id="experiment-result-preview" class="result-import-preview" aria-labelledby="result-preview-summary" hidden>
+            <strong id="result-preview-summary">等待结果文件</strong>
+            <p id="result-preview-detail"></p>
+            <div class="actions">
+              <button id="confirm-result-import" type="button" class="primary" disabled>确认回填</button>
+              <button id="cancel-result-import" type="button" class="secondary">取消</button>
+            </div>
+          </section>
+          <p id="experiment-result-status" class="success" role="status" aria-live="polite"></p>
+          <p id="experiment-result-error" class="error" role="alert"></p>
+          <p class="helper"><strong>判断边界：</strong>状态只依据最低消耗、目标 ROI 与父版本的描述性对照，不预测投放结果，也不把单变量与结果差异自动认定为因果。</p>
+        </details>
       </section>
 
       <section id="library" class="view" role="tabpanel" aria-labelledby="tab-library" aria-hidden="true">
@@ -321,7 +384,7 @@
               <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
             </div>
           </div>
-          <p class="helper">V1.1.0 只恢复当前浏览器保存的最近一个编导项目；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
+          <p class="helper">V1.2.0 可在当前浏览器保存多个编导项目、测试版本链和结果记录；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>
@@ -556,7 +619,7 @@
             <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
             <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
           </div>
-          <p class="helper">工作区备份仅支持最大 2 MB 的 JSON；导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
+          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.2.0 会同时备份本地项目、测试版本和结果。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
           <details class="rollback-guide">
             <summary><span>安装失败与回退方法</span></summary>
             <ol>

@@ -81,7 +81,7 @@ test("generates a controlled strategy from an optional creative task and histori
   assert.equal(plan.items[1].minSpend, 500);
   assert.match(plan.items[1].hypothesis, /仅将前三秒钩子改为/);
   assert.match(plan.items[1].stopCondition, /基线 80%/);
-  assert.equal(plan.version, "1.1.0");
+  assert.equal(plan.version, "1.2.0");
   assert.match(plan.dependencyFingerprint, /^fnv1a32:[0-9a-f]{8}$/u);
 });
 
@@ -134,7 +134,8 @@ test("generates without any task fields and only requires a completed review", (
   const analysis = analyzeReport(parseCsv(reportText), 1.5);
   const plan = generateCreativePlan({}, analysis);
   assert.equal(plan.items.length, 4);
-  assert.match(plan.items[0].id, /^MAT[A-Z0-9]{7}-HOOK-B00$/);
+  assert.match(plan.items[0].id, /^MAT[A-Z0-9]{7}-HOOK-\d{8}T\d{9}-B00$/u);
+  assert.equal(plan.batchId, plan.items[0].id.replace(/-B00$/u, ""));
   assert.equal(plan.creativeTask.subject, "");
   const otherAnalysis = structuredClone(analysis);
   otherAnalysis.topCreatives[0].creativeName = "另一条基线素材";

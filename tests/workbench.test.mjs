@@ -9,10 +9,10 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.1.0 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.2.0 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.1\.0/);
+  assert.match(html, /V1\.2\.0/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));

@@ -208,6 +208,7 @@ export function sanitizedCreativePlan(plan) {
   return {
     generatedAt: text(source.generatedAt),
     version: text(source.version),
+    batchId: text(source.batchId || items[0]?.id?.replace(/-(?:B00|A\d{2})$/u, "")),
     dependencyFingerprint: text(source.dependencyFingerprint),
     creativeTask: sanitizedCreativeTask(source.creativeTask ?? migrateLegacyProductBrief(source.brief ?? {})),
     sourceSummary: sanitizedSummary(source.sourceSummary ?? {}),
@@ -237,7 +238,7 @@ export function safeUpdateSnapshot(storage = {}, extensionVersion = "") {
 
 export function validateUpdateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new Error("备份文件格式无效");
-  if (![1, 2].includes(snapshot.schemaVersion)) throw new Error("备份文件版本不受支持");
+  if (![1, 2, 3].includes(snapshot.schemaVersion)) throw new Error("备份文件版本不受支持");
   parseVersion(snapshot.extensionVersion);
   const source = snapshot.data;
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("备份文件缺少工作区数据");

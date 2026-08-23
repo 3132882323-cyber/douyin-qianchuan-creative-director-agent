@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.1.0");
+  assert.equal(manifest.version, "1.2.0");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -64,6 +64,22 @@ test("keeps narrow side panels and programmatic focus usable", () => {
   assert.match(script, /target\.focus\(\);[\s\S]*target\.scrollIntoView/u);
   assert.doesNotMatch(script, /preventScroll/u);
   assert.match(css, /\.tag-editor \{ max-height: none;[\s\S]*overflow: visible;/u);
+});
+
+test("wires multi-project switching, version lineage and explicit result backfill", () => {
+  for (const id of ["project-hub", "project-select", "new-project", "rename-project", "parent-version", "experiment-loop", "version-filter", "experiment-summary", "version-timeline", "export-experiment-csv", "export-experiment-json", "experiment-result-file", "experiment-result-preview", "confirm-result-import", "cancel-result-import"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(script, /openProjectDatabase/u);
+  assert.match(script, /requestSwitch\(targetId\)/u);
+  assert.match(script, /parseExperimentResults/u);
+  assert.match(script, /buildExperimentLedgerSnapshot/u);
+  assert.match(script, /experimentLedgerToCsv/u);
+  assert.match(script, /filterExperimentTimeline/u);
+  assert.match(script, /指标口径提醒/u);
+  assert.match(script, /未匹配行不会写入/u);
+  assert.match(html, /不把单变量与结果差异自动认定为因果/u);
+  assert.match(html, /只按测试编号关联/u);
 });
 
 test("uses a readable black-and-white paper layout without changing workspace ids", () => {
@@ -304,4 +320,6 @@ test("exposes an honest user-confirmed update center", () => {
   assert.match(html, /id="task-migration-message"/u);
   assert.match(html, /id="dismiss-task-migration"/u);
   assert.match(script, /\$\("#task-migration-message"\)\.textContent/u);
+  assert.match(script, /const rollbackPortfolio = await state\.projectRepository\.exportPortfolio\(\)/u);
+  assert.match(script, /导入未完成，已恢复原项目集合和当前工作区/u);
 });

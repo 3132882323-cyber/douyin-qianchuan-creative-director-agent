@@ -2,7 +2,8 @@ const MIB = 1024 * 1024;
 
 export const NON_MEDIA_IMPORT_POLICIES = Object.freeze({
   report: Object.freeze({ label: "素材报表", maxBytes: 8 * MIB, extensions: Object.freeze([".csv", ".tsv"]) }),
-  backup: Object.freeze({ label: "工作区备份", maxBytes: 2 * MIB, extensions: Object.freeze([".json"]) }),
+  experimentResult: Object.freeze({ label: "测试结果", maxBytes: 2 * MIB, extensions: Object.freeze([".csv", ".tsv"]) }),
+  backup: Object.freeze({ label: "工作区备份", maxBytes: 12 * MIB, extensions: Object.freeze([".json"]) }),
   executionResult: Object.freeze({ label: "本机执行结果", maxBytes: 2 * MIB, extensions: Object.freeze([".json"]) }),
   transcript: Object.freeze({ label: "转写文本", maxBytes: 4 * MIB, extensions: Object.freeze([".txt", ".md", ".srt", ".vtt"]) })
 });

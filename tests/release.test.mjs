@@ -25,6 +25,12 @@ const paths = {
   recentWork: "../src/recent-work.js",
   analysisHandoff: "../src/analysis-handoff.js",
   analysisHandoffInbox: "../src/analysis-handoff-inbox.js",
+  projectModel: "../src/project-model.js",
+  projectStore: "../src/project-store.js",
+  experimentResults: "../src/experiment-results.js",
+  experimentLedger: "../src/experiment-ledger.js",
+  idb: "../vendor/idb.js",
+  idbLicense: "../vendor/idb.LICENSE.txt",
   readme: "../README.md",
   privacy: "../PRIVACY.md",
   changelog: "../CHANGELOG.md",
@@ -35,17 +41,17 @@ const paths = {
 const entries = await Promise.all(Object.entries(paths).map(async ([key, path]) => [key, await readFile(new URL(path, import.meta.url), "utf8")]));
 const files = Object.fromEntries(entries);
 
-test("keeps every user-visible V1 source version aligned", () => {
+test("keeps every user-visible V1.2 source version aligned", () => {
   const manifest = JSON.parse(files.manifest);
   const packageJson = JSON.parse(files.package);
-  assert.equal(manifest.version, "1.1.0");
-  assert.equal(packageJson.version, "1.1.0");
-  assert.match(files.sidepanelHtml, /V1\.1\.0/u);
-  assert.match(files.workbenchHtml, /V1\.1\.0/u);
-  assert.match(files.core, /version: "1\.1\.0"/u);
-  assert.match(files.transcode, /creatorVersion \|\| "1\.1\.0"/u);
-  assert.match(files.readme, /V1\.1\.0/u);
-  assert.match(files.changelog, /## \[1\.1\.0\]/u);
+  assert.equal(manifest.version, "1.2.0");
+  assert.equal(packageJson.version, "1.2.0");
+  assert.match(files.sidepanelHtml, /V1\.2\.0/u);
+  assert.match(files.workbenchHtml, /V1\.2\.0/u);
+  assert.match(files.core, /version: "1\.2\.0"/u);
+  assert.match(files.transcode, /creatorVersion \|\| "1\.2\.0"/u);
+  assert.match(files.readme, /V1\.2\.0/u);
+  assert.match(files.changelog, /## \[1\.2\.0\]/u);
 });
 
 test("pins a strict MV3 extension CSP without expanding permissions", () => {
@@ -67,7 +73,7 @@ test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
   assert.ok(checkedFiles.length >= 15);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js"]) {
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-ledger.js", "vendor/idb.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
 });
@@ -92,7 +98,12 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.workbenchOverview,
     files.recentWork,
     files.analysisHandoff,
-    files.analysisHandoffInbox
+    files.analysisHandoffInbox,
+    files.projectModel,
+    files.projectStore,
+    files.experimentResults,
+    files.experimentLedger,
+    files.idb
   ].join("\n");
   assert.doesNotMatch(html, /<script[^>]+src=["']https?:/iu);
   assert.doesNotMatch(html, /https?:\/\/[^"']+\.(?:js|mjs|wasm)(?:[?"'])/iu);
@@ -111,6 +122,7 @@ test("keeps shipped HTML ids unique and workbench buttons explicit", () => {
 
 test("ships the open-source release, privacy and rollback handoff", () => {
   assert.match(files.license, /MIT License/u);
+  assert.match(files.idbLicense, /ISC License/u);
   assert.match(files.privacy, /所有图片和报表均在本地处理|本地处理/u);
   assert.match(files.readme, /加载已解压/u);
   assert.match(files.readme, /回退|回滚/u);

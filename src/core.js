@@ -315,6 +315,10 @@ function materialCode(name, generatedAt = new Date()) {
   return `MAT${hash.toString(36).toUpperCase().padStart(7, "0")}`;
 }
 
+function batchTimeCode(generatedAt) {
+  return generatedAt.toISOString().replace(/[-:.Z]/gu, "");
+}
+
 function uniqueVariants(values, fallbacks) {
   const result = [];
   for (const item of [...values, ...fallbacks]) {
@@ -466,10 +470,10 @@ export function generateCreativePlan(inputTask, analysis, options = {}) {
   const minSpend = dependencies.minSpend;
   const observationMetrics = variable === "hook" ? "3 秒留存、CTR，辅助观察 ROI" : variable === "sellingPoint" ? "CVR、ROI，辅助观察 CTR" : variable === "scene" ? "CTR、CVR、ROI" : "CTR、CVR、CPA、ROI";
   const generatedAt = new Date();
-  const baseId = `${materialCode(creativeTask.subject || baseline.creativeName, generatedAt)}-${variableCodes[variable]}`;
+  const batchId = `${materialCode(creativeTask.subject || baseline.creativeName, generatedAt)}-${variableCodes[variable]}-${batchTimeCode(generatedAt)}`;
   const items = variants.map((variant, index) => {
     const creative = {
-      id: `${baseId}-${index === 0 ? "B00" : `A${String(index).padStart(2, "0")}`}`,
+      id: `${batchId}-${index === 0 ? "B00" : `A${String(index).padStart(2, "0")}`}`,
       type: index === 0 ? "基线" : "变体",
       baselineCreative: baseline.creativeName,
       singleVariable: variableLabels[variable],
@@ -490,7 +494,8 @@ export function generateCreativePlan(inputTask, analysis, options = {}) {
   });
   return {
     generatedAt: generatedAt.toISOString(),
-    version: "1.1.0",
+    version: "1.2.0",
+    batchId,
     dependencyFingerprint: creativePlanDependencyFingerprint(creativeTask, analysis, { testVariable: variable, minSpend }),
     creativeTask,
     sourceSummary: analysis.summary,

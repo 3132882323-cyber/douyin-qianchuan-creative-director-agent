@@ -96,7 +96,8 @@ test("exports and validates a whitelisted local-workspace backup", () => {
   assert.equal(restored.targetRoi, 1.8);
   assert.equal(restored.updateSettings.autoCheck, true);
   assert.equal("unknownSecret" in restored, false);
-  assert.throws(() => validateUpdateSnapshot({ schemaVersion: 3 }), /不受支持/);
+  assert.throws(() => validateUpdateSnapshot({ schemaVersion: 4 }), /不受支持/);
+  assert.throws(() => validateUpdateSnapshot({ schemaVersion: 3 }), /版本号|工作区/u);
 });
 
 test("imports a V1 productBrief backup into creativeTask without leaking retired fields into V2", () => {

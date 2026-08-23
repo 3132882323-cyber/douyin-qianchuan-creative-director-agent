@@ -64,6 +64,20 @@ import {
   decideAnalysisHandoffPreview,
   inspectAnalysisHandoffInbox
 } from "./src/analysis-handoff-inbox.js";
+import { createProjectRepository, openProjectDatabase } from "./src/project-store.js";
+import {
+  buildVersionTimeline,
+  projectWorkspaceStorageWrite,
+  sanitizeProjectWorkspace,
+  validateProjectPortfolio
+} from "./src/project-model.js";
+import { experimentQualityWarningLabel, parseExperimentResults } from "./src/experiment-results.js";
+import {
+  buildExperimentLedgerSnapshot,
+  experimentLedgerToCsv,
+  filterExperimentTimeline,
+  summarizeExperimentTimeline
+} from "./src/experiment-ledger.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["creativeTask", "productBrief", "targetRoi", "lastAnalysis", "creativePlan", "planExportReceipt", "updateSettings", "lastUpdateCheck", "migrationNoticePending", "onboardingDismissed"];
@@ -90,6 +104,13 @@ const state = {
   recoveryInvalidKeys: [],
   updateSettings: { autoCheck: false },
   lastUpdateCheck: null,
+  projectRepository: null,
+  currentProject: null,
+  projects: [],
+  versions: [],
+  experimentResults: [],
+  pendingResultImport: null,
+  projectSwitching: false,
   matchData: null,
   matchOperation: { runId: 0, running: false, cancelRequested: false },
   masterFileIndex: new Map(),
@@ -246,6 +267,335 @@ function creativeTaskHasContent(task = null) {
   return MEANINGFUL_TASK_FIELDS.some((key) => String(source?.[key] ?? "").trim());
 }
 
+function currentProjectWorkspace() {
+  return {
+    creativeTask: state.creativeTask,
+    targetRoi: Number($("#target-roi")?.value || 1.5),
+    lastAnalysis: state.analysis,
+    creativePlan: state.plan,
+    planExportReceipt: state.planExportReceipt
+  };
+}
+
+function setProjectFeedback({ status = "", error = "" } = {}) {
+  setFeedback("#project-status", "#project-error", { status, error });
+}
+
+function renderProjectHub() {
+  const select = $("#project-select");
+  const currentId = state.currentProject?.id || "";
+  select.replaceChildren();
+  for (const project of state.projects) {
+    const option = element("option", "", project.name);
+    option.value = project.id;
+    select.append(option);
+  }
+  select.value = currentId;
+  select.disabled = !state.projectRepository || state.projects.length < 2 || state.projectSwitching;
+  $("#new-project").disabled = !state.projectRepository || state.projectSwitching;
+  $("#rename-project").disabled = !state.currentProject || state.projectSwitching;
+  setNodeText("#project-local-meta", state.currentProject
+    ? `${state.versions.length} 个测试版本 · ${state.experimentResults.length} 条结果 · 仅当前浏览器`
+    : "项目集合不可用；当前单项目工作区仍可继续使用");
+  setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 最近任务` : "最近任务 · 仅本地");
+}
+
+function metricText(result) {
+  if (!result) return "尚未回填结果";
+  const metrics = result.metrics;
+  const parts = [`消耗 ¥${formatMoney(metrics.spend)}`];
+  if (Number.isFinite(metrics.roi)) parts.push(`ROI ${metrics.roi.toFixed(2)}`);
+  if (Number.isFinite(metrics.ctr)) parts.push(`CTR ${(metrics.ctr * 100).toFixed(2)}%`);
+  if (Number.isFinite(metrics.cvr)) parts.push(`CVR ${(metrics.cvr * 100).toFixed(2)}%`);
+  if (result.qualityWarnings?.length) parts.push(`口径提醒 ${result.qualityWarnings.length}`);
+  return parts.join(" · ");
+}
+
+function renderExperimentLoop() {
+  const timeline = buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5));
+  const summary = summarizeExperimentTimeline(timeline);
+  const selectedFilter = $("#version-filter").value || "all";
+  const filteredTimeline = filterExperimentTimeline(timeline, selectedFilter);
+  setNodeText("#version-count", `${timeline.length} 个版本`);
+  setNodeText("#result-count", `${state.experimentResults.length} 条结果`);
+  setNodeText("#experiment-summary", timeline.length
+    ? `待回填 ${summary.pending} · 样本不足 ${summary.insufficient} · 达标 ${summary.targetMet} · 需复核 ${summary.needsReview} · 口径提醒 ${summary.qualityWarnings} · 已回填消耗 ¥${formatMoney(summary.totalSpend)}`
+    : "尚无测试版本；生成下一版任务后会自动建立实验台账。");
+  $("#version-filter").disabled = !timeline.length;
+  $("#export-experiment-csv").disabled = !timeline.length;
+  $("#export-experiment-json").disabled = !timeline.length;
+  const parentSelect = $("#parent-version");
+  const selectedParent = parentSelect.value;
+  parentSelect.replaceChildren();
+  const rootOption = element("option", "", "无（新测试起点）");
+  rootOption.value = "";
+  parentSelect.append(rootOption);
+  for (const entry of timeline) {
+    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}`);
+    option.value = entry.version.testId;
+    parentSelect.append(option);
+  }
+  parentSelect.value = timeline.some((entry) => entry.version.testId === selectedParent) ? selectedParent : "";
+  parentSelect.disabled = !state.projectRepository || !state.currentProject;
+
+  const container = $("#version-timeline");
+  container.replaceChildren();
+  if (!timeline.length) {
+    container.append(element("p", "empty-inline", "生成下一版任务后，这里会保留测试编号、父版本与结果状态。"));
+  } else if (!filteredTimeline.length) {
+    container.append(element("p", "empty-inline", "当前筛选条件下没有测试版本。"));
+  } else {
+    for (const entry of filteredTimeline.slice(0, 100)) {
+      const card = element("article", "version-item");
+      const head = element("div", "version-item-head");
+      const title = element("span");
+      title.append(element("strong", "", entry.version.testId), element("small", "", entry.version.parentVersionId ? `父版本 ${entry.version.parentVersionId}` : "新测试起点"));
+      const badge = element("b", "version-result-badge", entry.evaluation.label);
+      badge.dataset.resultState = entry.evaluation.code;
+      head.append(title, badge);
+      card.append(
+        head,
+        element("p", "", `${entry.version.primaryVariable} · 基线 ${entry.version.baselineCreative || "未填写"}`),
+        element("p", "", metricText(entry.result)),
+        ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
+        element("small", "", entry.evaluation.detail)
+      );
+      container.append(card);
+    }
+  }
+  $("#experiment-result-file-trigger").classList.toggle("disabled", !timeline.length);
+  $("#experiment-result-file").disabled = !timeline.length;
+  renderProjectHub();
+}
+
+function renderResultImportPreview() {
+  const preview = $("#experiment-result-preview");
+  const value = state.pendingResultImport;
+  preview.hidden = !value;
+  if (!value) {
+    $("#confirm-result-import").disabled = true;
+    return;
+  }
+  setNodeText("#result-preview-summary", `可匹配 ${value.matched.length} / ${value.totalRows} 行${value.warnings.length ? ` · ${value.warnings.length} 条口径提醒` : ""}`);
+  const detail = [];
+  if (value.unmatched.length) detail.push(`未匹配编号：${value.unmatched.slice(0, 5).map((entry) => entry.testId).join("、")}${value.unmatched.length > 5 ? ` 等 ${value.unmatched.length} 条` : ""}。未匹配行不会写入。`);
+  if (value.warnings.length) detail.push(`${value.warnings.slice(0, 2).map((entry) => entry.message).join("；")}${value.warnings.length > 2 ? `；另有 ${value.warnings.length - 2} 条` : ""}。这些行可继续写入，但必须人工核对口径。`);
+  if (!detail.length) detail.push("全部测试编号均属于当前项目；确认后写入本地版本记录。");
+  setNodeText("#result-preview-detail", detail.join(" "));
+  $("#confirm-result-import").disabled = value.matched.length === 0;
+}
+
+$("#version-filter").addEventListener("change", renderExperimentLoop);
+
+function currentExperimentLedgerSnapshot() {
+  if (!state.currentProject || !state.versions.length) throw new Error("当前项目还没有可导出的测试版本");
+  return buildExperimentLedgerSnapshot({
+    project: state.currentProject,
+    versions: state.versions,
+    results: state.experimentResults,
+    targetRoi: Number($("#target-roi").value || 1.5)
+  });
+}
+
+function experimentLedgerFileName(extension) {
+  return `qianchuan-experiment-ledger-${new Date().toISOString().slice(0, 10)}.${extension}`;
+}
+
+$("#export-experiment-csv").addEventListener("click", () => {
+  try {
+    download(experimentLedgerFileName("csv"), experimentLedgerToCsv(currentExperimentLedgerSnapshot()), "text/csv;charset=utf-8");
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: "当前项目完整实验台账已导出为 CSV；筛选只影响页面显示，不会漏掉其他版本。" });
+  } catch (error) {
+    setFeedback("#experiment-result-status", "#experiment-result-error", { error: error.message || "实验台账无法导出" });
+  }
+});
+
+$("#export-experiment-json").addEventListener("click", () => {
+  try {
+    download(experimentLedgerFileName("json"), JSON.stringify(currentExperimentLedgerSnapshot(), null, 2), "application/json;charset=utf-8");
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: "当前项目完整实验台账已导出为 JSON；不包含原始报表或素材文件。" });
+  } catch (error) {
+    setFeedback("#experiment-result-status", "#experiment-result-error", { error: error.message || "实验台账无法导出" });
+  }
+});
+
+async function refreshExperimentLoop({ syncPlan = false, parentVersionId } = {}) {
+  if (!state.projectRepository || !state.currentProject) {
+    state.versions = [];
+    state.experimentResults = [];
+    renderExperimentLoop();
+    return;
+  }
+  if (syncPlan && state.plan?.items?.length) {
+    await state.projectRepository.syncPlan(state.currentProject.id, state.plan, parentVersionId);
+  }
+  [state.versions, state.experimentResults] = await Promise.all([
+    state.projectRepository.listVersions(state.currentProject.id),
+    state.projectRepository.listResults(state.currentProject.id)
+  ]);
+  renderExperimentLoop();
+}
+
+async function persistCurrentProject({ syncPlan = false, parentVersionId, quiet = false } = {}) {
+  if (!state.projectRepository || !state.currentProject || state.projectSwitching) return false;
+  try {
+    const saved = await state.projectRepository.saveWorkspace(state.currentProject.id, currentProjectWorkspace());
+    state.currentProject = saved;
+    state.projects = [saved, ...state.projects.filter((project) => project.id !== saved.id)].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    if (syncPlan && state.plan?.items?.length) await refreshExperimentLoop({ syncPlan: true, parentVersionId });
+    else renderProjectHub();
+    if (!quiet) setProjectFeedback({ status: "当前项目已保存到本地项目集合。" });
+    return true;
+  } catch (error) {
+    setProjectFeedback({ error: `项目集合未能同步：${error.message || "IndexedDB 不可用"}。当前工作区仍保留在浏览器本地。` });
+    return false;
+  }
+}
+
+function hasTransientProjectWork() {
+  return Boolean(
+    (state.document && state.reviewPending)
+    || state.matchOperation.running
+    || state.imageRepair.file
+    || state.transcodeFiles.length
+  );
+}
+
+async function prepareProjectTransition() {
+  if (hasTransientProjectWork() && !window.confirm("切换项目会刷新侧边栏。未完成的报表标签编辑、素材匹配、图片修复或转码队列只存在于当前页面，会被清空；已完成复盘、创作任务和方案会保留。是否继续？")) return false;
+  if (taskSaveTimer) {
+    clearTimeout(taskSaveTimer);
+    taskSaveTimer = null;
+    await saveCreativeTask({ quiet: true });
+  }
+  if (planSaveTimer) {
+    clearTimeout(planSaveTimer);
+    planSaveTimer = null;
+    await savePlanNow();
+  }
+  await persistCurrentProject({ quiet: true });
+  return true;
+}
+
+async function initializeProjectLayer(stored) {
+  try {
+    const database = await openProjectDatabase();
+    state.projectRepository = createProjectRepository(database);
+    const recovered = recoverStoredWorkspace(stored).data;
+    const context = await state.projectRepository.initialize(sanitizeProjectWorkspace(recovered));
+    state.currentProject = context.current;
+    state.projects = context.projects;
+    if (context.pendingWorkspace) {
+      const write = projectWorkspaceStorageWrite(context.pendingWorkspace);
+      await chrome.storage.local.set(write);
+      await chrome.storage.local.remove("productBrief");
+      stored = { ...stored, ...write };
+      delete stored.productBrief;
+    }
+    renderProjectHub();
+  } catch (error) {
+    state.projectRepository = null;
+    state.currentProject = null;
+    state.projects = [];
+    setProjectFeedback({ error: `多项目功能已安全降级：${error.message || "IndexedDB 不可用"}。当前单项目工作区仍可继续使用。` });
+    renderProjectHub();
+  }
+  return stored;
+}
+
+$("#project-select").addEventListener("change", async (event) => {
+  const select = event.currentTarget;
+  const targetId = select.value;
+  if (!targetId || targetId === state.currentProject?.id) return;
+  select.disabled = true;
+  if (!await prepareProjectTransition()) {
+    select.value = state.currentProject?.id || "";
+    renderProjectHub();
+    return;
+  }
+  try {
+    state.projectSwitching = true;
+    await state.projectRepository.requestSwitch(targetId);
+    window.location.reload();
+  } catch (error) {
+    state.projectSwitching = false;
+    select.value = state.currentProject?.id || "";
+    setProjectFeedback({ error: `无法切换项目：${error.message || "本地项目不可用"}` });
+    renderProjectHub();
+  }
+});
+
+$("#new-project").addEventListener("click", async () => {
+  const name = window.prompt("新项目名称", `新项目 ${state.projects.length + 1}`);
+  if (name === null || !String(name).trim()) return;
+  if (!await prepareProjectTransition()) return;
+  try {
+    state.projectSwitching = true;
+    await state.projectRepository.createProject(name);
+    window.location.reload();
+  } catch (error) {
+    state.projectSwitching = false;
+    setProjectFeedback({ error: `无法创建项目：${error.message || "本地项目不可用"}` });
+    renderProjectHub();
+  }
+});
+
+$("#rename-project").addEventListener("click", async () => {
+  if (!state.currentProject) return;
+  const name = window.prompt("修改项目名称", state.currentProject.name);
+  if (name === null || !String(name).trim()) return;
+  try {
+    const renamed = await state.projectRepository.renameProject(state.currentProject.id, name);
+    state.currentProject = renamed;
+    state.projects = state.projects.map((project) => project.id === renamed.id ? renamed : project);
+    renderProjectHub();
+    setProjectFeedback({ status: "项目名称已更新。" });
+  } catch (error) {
+    setProjectFeedback({ error: `无法重命名项目：${error.message || "本地项目不可用"}` });
+  }
+});
+
+$("#experiment-result-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0] || null;
+  event.target.value = "";
+  state.pendingResultImport = null;
+  renderResultImportPreview();
+  if (!file) return;
+  try {
+    validateNonMediaImport(file, "experimentResult");
+    state.pendingResultImport = parseExperimentResults(await file.text(), state.versions.map((version) => version.testId));
+    renderResultImportPreview();
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: state.pendingResultImport.notice });
+  } catch (error) {
+    setFeedback("#experiment-result-status", "#experiment-result-error", { error: error.message || "测试结果无法读取" });
+  }
+});
+
+$("#cancel-result-import").addEventListener("click", () => {
+  state.pendingResultImport = null;
+  renderResultImportPreview();
+  setFeedback("#experiment-result-status", "#experiment-result-error", { status: "已取消结果回填；现有版本和结果保持不变。" });
+});
+
+$("#confirm-result-import").addEventListener("click", async () => {
+  const pending = state.pendingResultImport;
+  if (!pending?.matched?.length || !state.projectRepository || !state.currentProject) return;
+  const partial = pending.unmatched.length ? `\n\n另有 ${pending.unmatched.length} 行测试编号不属于当前项目，将跳过。` : "";
+  const warnings = pending.warnings.length ? `\n\n发现 ${pending.warnings.length} 条指标口径提醒；继续表示你已人工核对并接受这些口径差异。` : "";
+  if (!window.confirm(`将把 ${pending.matched.length} 行结果写入当前项目；相同测试编号的旧结果会被替换。${partial}${warnings}\n\n是否继续？`)) return;
+  try {
+    await state.projectRepository.importResults(state.currentProject.id, pending.matched);
+    state.pendingResultImport = null;
+    renderResultImportPreview();
+    await refreshExperimentLoop();
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: pending.warnings.length
+      ? `结果已回填；请继续人工复核 ${pending.warnings.length} 条指标口径提醒。版本状态不会被解释为因果结论。`
+      : "结果已回填；版本状态已按最低消耗、目标 ROI 和父版本对照重新计算。" });
+  } catch (error) {
+    setFeedback("#experiment-result-status", "#experiment-result-error", { error: error.message || "测试结果未能写入" });
+  }
+});
+
 function planFingerprint(plan) {
   const source = JSON.stringify(sanitizedCreativePlan(plan));
   let hash = 0x811c9dc5;
@@ -271,6 +621,7 @@ async function markPlanCompleted() {
   } catch {
     // 当前会话仍可显示完成；持久化失败不会把已成功的复制或导出误报为失败。
   }
+  await persistCurrentProject({ quiet: true });
 }
 
 function setPlanExportControls(disabled, reason = "") {
@@ -778,6 +1129,7 @@ async function saveCreativeTask({ quiet = false } = {}) {
       markPlanStale("创作任务已变化，请重新生成后再导出。");
     }
     await chrome.storage.local.set({ creativeTask: state.creativeTask });
+    await persistCurrentProject({ quiet: true });
     const suggestions = taskSuggestions();
     setStatus("#task-save-state", suggestions.length ? "草稿已保存" : "已保存", true);
     $("#task-error").textContent = "";
@@ -804,7 +1156,10 @@ $("#creative-task-form").addEventListener("input", () => {
   markPlanStale("创作任务已变化，请重新生成后再导出。");
   updateWorkflowGuide();
   clearTimeout(taskSaveTimer);
-  taskSaveTimer = setTimeout(() => saveCreativeTask({ quiet: true }), 500);
+  taskSaveTimer = setTimeout(() => {
+    taskSaveTimer = null;
+    void saveCreativeTask({ quiet: true });
+  }, 500);
 });
 
 $("#task-template").addEventListener("change", async (event) => {
@@ -1007,6 +1362,7 @@ $("#dismiss-task-migration").addEventListener("click", () => {
 });
 
 $("#target-roi").addEventListener("input", () => {
+  if (state.versions.length) renderExperimentLoop();
   if (!state.document) return;
   markReviewPending("目标 ROI 已变化，请重新完成复盘后再生成。");
   markPlanStale("目标 ROI 已变化，请完成复盘并重新生成。");
@@ -1048,6 +1404,7 @@ $("#analyze-button").addEventListener("click", async () => {
     } catch (error) {
       persistenceError = error;
     }
+    await persistCurrentProject({ quiet: true });
     $("#analysis-error").textContent = persistenceError ? `复盘已完成，当前会话可继续使用，但未能保存到浏览器：${persistenceError.message || "本地存储不可用"}` : "";
     setStatus("#report-state", persistenceError ? "复盘完成 · 未保存" : "复盘完成", !persistenceError);
     updateReadiness();
@@ -1140,6 +1497,7 @@ $("#min-spend").addEventListener("input", () => markPlanStale("最低测试消�
 
 $("#generate-plan").addEventListener("click", async () => {
   try {
+    const parentVersionId = $("#parent-version").value || null;
     await saveCreativeTask({ quiet: true });
     const nextPlan = generateCreativePlan(state.creativeTask, state.analysis, {
       testVariable: $("#test-variable").value,
@@ -1155,6 +1513,7 @@ $("#generate-plan").addEventListener("click", async () => {
     } catch (error) {
       persistenceError = error;
     }
+    await persistCurrentProject({ syncPlan: true, parentVersionId, quiet: true });
     $("#plan-error").textContent = persistenceError ? `任务已生成，当前会话可复制或导出，但未能保存到浏览器：${persistenceError.message || "本地存储不可用"}` : "";
     setStatus("#plan-state", persistenceError ? "已生成 · 未保存" : "已生成", !persistenceError);
     setPlanExportControls(false);
@@ -1197,23 +1556,31 @@ function setPlanValue(index, path, value) {
   target[key] = key === "minSpend" ? Number(value || 0) : value;
 }
 
+async function savePlanNow() {
+  try {
+    await chrome.storage.local.set({ creativePlan: state.plan });
+    await persistCurrentProject({ syncPlan: true, quiet: true });
+    $("#plan-error").textContent = "";
+    setStatus("#plan-state", "已保存", true);
+    return true;
+  } catch (error) {
+    setStatus("#plan-state", "保存失败");
+    $("#plan-error").textContent = `当前编辑仍保留在本次会话，但未能保存：${error.message || "本地存储不可用"}`;
+    return false;
+  }
+}
+
 function schedulePlanSave() {
   setStatus("#plan-state", "保存中…");
   clearTimeout(planSaveTimer);
   planSaveTimer = setTimeout(async () => {
-    try {
-      await chrome.storage.local.set({ creativePlan: state.plan });
-      $("#plan-error").textContent = "";
-      setStatus("#plan-state", "已保存", true);
-    } catch (error) {
-      setStatus("#plan-state", "保存失败");
-      $("#plan-error").textContent = `当前编辑仍保留在本次会话，但未能保存：${error.message || "本地存储不可用"}`;
-    }
+    planSaveTimer = null;
+    await savePlanNow();
   }, 450);
 }
 
 function renderPlan(plan) {
-  $("#plan-batch").textContent = plan.items[0]?.id.split("-").slice(0, 2).join("-") || "—";
+  $("#plan-batch").textContent = plan.batchId || plan.items[0]?.id.replace(/-(?:B00|A\d{2})$/u, "") || "—";
   $("#plan-baseline").textContent = plan.items[0]?.baselineCreative || "—";
   const list = $("#plan-list");
   list.replaceChildren();
@@ -1451,6 +1818,7 @@ $("#open-update-page").addEventListener("click", () => {
 
 $("#export-update-backup").addEventListener("click", async () => {
   try {
+    await persistCurrentProject({ quiet: true });
     const snapshot = safeUpdateSnapshot({
       creativeTask: state.creativeTask,
       targetRoi: Number($("#target-roi").value || 1.5),
@@ -1459,8 +1827,15 @@ $("#export-update-backup").addEventListener("click", async () => {
       updateSettings: state.updateSettings,
       lastUpdateCheck: state.lastUpdateCheck
     }, CURRENT_VERSION);
+    if (state.projectRepository) {
+      snapshot.schemaVersion = 3;
+      snapshot.portfolio = await state.projectRepository.exportPortfolio();
+      snapshot.notice = "包含当前浏览器中的本地项目集合、测试版本、结果记录和当前工作区；不包含原始 CSV、视频、图片、路径、Cookie、Token 或私钥。";
+    }
     download(`qianchuan-director-workspace-v${CURRENT_VERSION}.json`, JSON.stringify(snapshot, null, 2), "application/json;charset=utf-8");
-    showUpdateMessage("工作区备份已导出。它不包含原始 CSV、素材文件、旧版本地迁移归档、账号凭据或私钥。", "ready");
+    showUpdateMessage(state.projectRepository
+      ? "全部本地项目、测试版本、结果记录和当前工作区已导出；不包含原始 CSV、素材文件、账号凭据或私钥。"
+      : "当前工作区备份已导出；多项目数据库不可用，因此本次不包含项目集合。", "ready");
   } catch (error) {
     showUpdateMessage(`当前工作区无法导出：${error.message || "数据格式无效"}`, "error");
   }
@@ -1475,12 +1850,43 @@ $("#update-backup-file").addEventListener("change", async (event) => {
     validateNonMediaImport(file, "backup");
     const snapshot = parseJsonDocument(await file.text(), "工作区备份");
     const restored = validateUpdateSnapshot(snapshot);
-    if (!window.confirm("导入会覆盖当前浏览器中的创作任务、复盘摘要和拍摄方案。是否继续？")) {
+    const portfolio = snapshot.schemaVersion === 3 ? validateProjectPortfolio(snapshot.portfolio) : null;
+    if (portfolio && !state.projectRepository) throw new Error("当前浏览器的多项目数据库不可用，不能安全导入项目集合");
+    const scope = portfolio ? `${portfolio.projects.length} 个项目、${portfolio.versions.length} 个测试版本、${portfolio.results.length} 条结果以及当前工作区` : "当前项目中的创作任务、复盘摘要和拍摄方案";
+    if (!window.confirm(`导入会覆盖${scope}。此操作不会删除原始素材文件，但无法在页面内撤销。是否继续？`)) {
       showUpdateMessage("已取消导入，当前工作区没有变化。", "ready");
       return;
     }
-    await chrome.storage.local.set({ ...restored, ...(snapshot.schemaVersion === 1 ? { migrationNoticePending: true } : {}) });
-    await chrome.storage.local.remove(["productBrief", "planExportReceipt"]);
+    if (portfolio) {
+      const rollbackPortfolio = await state.projectRepository.exportPortfolio();
+      const rollbackStorage = {
+        ...projectWorkspaceStorageWrite(currentProjectWorkspace()),
+        updateSettings: state.updateSettings,
+        lastUpdateCheck: state.lastUpdateCheck
+      };
+      try {
+        await state.projectRepository.replacePortfolio(portfolio);
+        await chrome.storage.local.set({ updateSettings: restored.updateSettings, lastUpdateCheck: restored.lastUpdateCheck });
+        await chrome.storage.local.remove(["productBrief", "planExportReceipt"]);
+      } catch (error) {
+        const rollbackFailures = [];
+        try {
+          await state.projectRepository.replacePortfolio(rollbackPortfolio);
+        } catch (rollbackError) {
+          rollbackFailures.push(`项目集合回滚失败：${rollbackError.message || "IndexedDB 不可用"}`);
+        }
+        try {
+          await chrome.storage.local.set(rollbackStorage);
+        } catch (rollbackError) {
+          rollbackFailures.push(`当前工作区回滚失败：${rollbackError.message || "本地存储不可用"}`);
+        }
+        if (rollbackFailures.length) throw new Error(`导入未完成，且无法完整恢复原状态。${rollbackFailures.join("；")}`);
+        throw new Error(`导入未完成，已恢复原项目集合和当前工作区：${error.message || "本地存储不可用"}`);
+      }
+    } else {
+      await chrome.storage.local.set({ ...restored, ...(snapshot.schemaVersion === 1 ? { migrationNoticePending: true } : {}) });
+      await chrome.storage.local.remove(["productBrief", "planExportReceipt"]);
+    }
     window.location.reload();
   } catch (error) {
     showUpdateMessage(error.message || "备份文件无法导入", "error");
@@ -2446,6 +2852,8 @@ async function initializeWorkspace() {
     showRecoveryIssues([{ key: "", message: `本地工作区无法读取，已使用临时默认值：${error.message || "本地存储不可用"}` }]);
   }
 
+  stored = await initializeProjectLayer(stored);
+
   let recovery;
   try {
     recovery = recoverStoredWorkspace(stored);
@@ -2463,6 +2871,8 @@ async function initializeWorkspace() {
     $("#onboarding-guide").hidden = false;
   }
   finalizeWorkspaceUi();
+  await persistCurrentProject({ syncPlan: Boolean(state.plan?.items?.length), quiet: true });
+  if (!state.plan?.items?.length) await refreshExperimentLoop();
   await loadSessionAnalysisHandoff();
   try {
     await maybeRunAutomaticUpdateCheck();

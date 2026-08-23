@@ -39,6 +39,14 @@ h1 { margin: 0; font-size: 18px; line-height: 1.25; }
 
 .top-launcher { padding: 12px; border-bottom: 1px solid var(--line); background: #f7f7f7; }
 .top-launcher .workbench-entry { margin-bottom: 8px; }
+.project-hub { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 8px; padding: 12px; border: 1px solid #111111; border-radius: 8px; background: #ffffff; }
+.project-hub-copy { display: grid; min-width: 0; gap: 5px; }
+.project-hub-copy > span { color: #555555; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.project-hub-copy select { min-width: 0; font-size: 11px; font-weight: 700; }
+.project-hub-copy small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.project-hub-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; align-self: center; }
+.project-hub-actions .secondary { min-height: 34px; padding: 6px 8px; font-size: 10px; }
+.project-hub > .success, .project-hub > .error { grid-column: 1 / -1; margin: 0; min-height: 0; }
 .recent-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #ffffff; }
 .recent-task-copy { display: grid; min-width: 0; gap: 3px; }
 .recent-task-copy > span { color: #555555; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
@@ -201,6 +209,7 @@ details > summary small { margin-left: auto; color: var(--muted); font-size: 11p
 .notice.ready { border: 3px double #111111; background: #ffffff; color: #111111; }
 .notice.error { border: 2px solid #111111; background: #ffffff; color: #111111; }
 .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.controls > .wide { grid-column: 1 / -1; }
 .plan-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .plan-summary div { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f7; }
 .plan-summary span { color: var(--muted); font-size: 11px; }
@@ -217,6 +226,30 @@ details > summary small { margin-left: auto; color: var(--muted); font-size: 11p
 .editor-field input, .editor-field textarea { min-height: 36px; padding: 8px; color: #111111; font-size: 11px; }
 .mini-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .editor-section { margin: 8px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: #111111; font-size: 12px; font-weight: 800; }
+.experiment-loop[open] > summary { margin-bottom: 10px; }
+.experiment-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 10px 0; }
+.experiment-counts span { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f7; color: #333333; font-size: 11px; font-weight: 700; text-align: center; }
+.experiment-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; margin-bottom: 7px; }
+.experiment-filter { display: grid; gap: 4px; color: #333333; font-size: 10px; font-weight: 700; }
+.experiment-filter select { min-width: 0; font-size: 11px; }
+.experiment-export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.experiment-export-actions .secondary { min-height: 34px; padding: 6px 8px; font-size: 10px; white-space: nowrap; }
+.experiment-summary { margin: 0 0 8px; padding: 8px; border-left: 3px solid #111111; background: #f7f7f7; color: #333333; font-size: 10px; line-height: 1.5; }
+.version-timeline { display: grid; max-height: 420px; gap: 7px; overflow-y: auto; }
+.version-item { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--line); border-left: 3px solid #111111; border-radius: 8px; background: #f7f7f7; }
+.version-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.version-item-head > span { display: grid; min-width: 0; gap: 2px; }
+.version-item-head strong { overflow-wrap: anywhere; font: 700 11px/1.4 Consolas, monospace; }
+.version-item-head small, .version-item > small { color: var(--muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.version-item > .version-quality-warning { padding: 5px 7px; border: 1px dashed #111111; background: #ffffff; color: #111111; }
+.version-item p { margin: 0; color: #333333; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.version-result-badge { flex: 0 0 auto; padding: 3px 6px; border: 1px solid #111111; border-radius: 99px; background: #ffffff; font-size: 10px; }
+.version-result-badge[data-result-state="target_met"] { border: 3px double #111111; }
+.version-result-badge[data-result-state="insufficient"], .version-result-badge[data-result-state="metric_missing"] { border-style: dashed; }
+.file-drop.disabled { cursor: not-allowed; opacity: .5; }
+.result-import-preview { display: grid; gap: 7px; margin-top: 10px; padding: 10px; border: 2px solid #111111; border-radius: 8px; background: #ffffff; }
+.result-import-preview strong { font-size: 11px; }
+.result-import-preview p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 
 .library-status h3 { margin-bottom: 10px; }
 .asset-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
@@ -330,6 +363,11 @@ img, canvas, video { max-width: 100%; }
   .workflow-guide { margin-inline: 9px; }
   .top-launcher { padding: 9px; }
   .recent-task .secondary { max-width: 110px; white-space: normal; }
+  .project-hub { grid-template-columns: 1fr; }
+  .project-hub-actions { grid-template-columns: 1fr 1fr; }
+  .project-hub > .success, .project-hub > .error { grid-column: 1; }
+  .experiment-toolbar { grid-template-columns: 1fr; }
+  .experiment-export-actions { grid-template-columns: 1fr 1fr; }
   .card { padding: 12px; }
   .form-grid, .controls, .mapping-grid, .tag-grid, .mini-grid, .transcode-grid, .repair-export-grid, .repair-rectangle-grid, .repair-toolbar, .form-actions, .actions, .actions.four, .plan-summary, .insight-grid, .version-grid, .metrics, .segments, .asset-counts, .field { grid-template-columns: 1fr; }
   .wide, .repair-range { grid-column: 1; }

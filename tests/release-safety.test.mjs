@@ -10,7 +10,8 @@ import {
 
 test("applies fixed local-only limits to every non-media import", () => {
   assert.equal(NON_MEDIA_IMPORT_POLICIES.report.maxBytes, 8 * 1024 * 1024);
-  assert.equal(NON_MEDIA_IMPORT_POLICIES.backup.maxBytes, 2 * 1024 * 1024);
+  assert.equal(NON_MEDIA_IMPORT_POLICIES.backup.maxBytes, 12 * 1024 * 1024);
+  assert.equal(NON_MEDIA_IMPORT_POLICIES.experimentResult.maxBytes, 2 * 1024 * 1024);
   assert.equal(NON_MEDIA_IMPORT_POLICIES.executionResult.maxBytes, 2 * 1024 * 1024);
   assert.equal(NON_MEDIA_IMPORT_POLICIES.transcript.maxBytes, 4 * 1024 * 1024);
 
@@ -22,7 +23,8 @@ test("applies fixed local-only limits to every non-media import", () => {
   });
   assert.throws(() => validateNonMediaImport({ name: "report.xlsx", size: 1024 }, "report"), /CSV|TSV|\.csv/u);
   assert.throws(() => validateNonMediaImport({ name: "backup.json", size: 0 }, "backup"), /为空|大小无效/u);
-  assert.throws(() => validateNonMediaImport({ name: "backup.json", size: 2 * 1024 * 1024 + 1 }, "backup"), /2 MB/u);
+  assert.throws(() => validateNonMediaImport({ name: "backup.json", size: 12 * 1024 * 1024 + 1 }, "backup"), /12 MB/u);
+  assert.throws(() => validateNonMediaImport({ name: "results.xlsx", size: 1024 }, "experimentResult"), /CSV|TSV|\.csv/u);
   assert.throws(() => validateNonMediaImport({ name: "result.json", size: Number.NaN }, "executionResult"), /为空|大小无效/u);
 });
 
