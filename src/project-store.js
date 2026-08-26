@@ -9,7 +9,9 @@ import {
   sanitizeProjectName,
   sanitizeProjectRecord,
   sanitizeProjectWorkspace,
+  sanitizeVersionRecord,
   validateProjectPortfolio,
+  versionRecordId,
   versionRecordsFromPlan
 } from "./project-model.js";
 
@@ -141,9 +143,29 @@ export function createProjectRepository(database) {
     });
     const existing = await listResults(projectId);
     if (new Set([...existing.map((entry) => entry.id), ...records.map((entry) => entry.id)]).size > PROJECT_LIMITS.maxResultsPerProject) throw new Error("当前项目结果记录超过 500 条上限");
-    const transaction = database.transaction("results", "readwrite");
-    await Promise.all([...records.map((record) => transaction.store.put(record)), transaction.done]);
+    const project = await database.get("projects", projectId);
+    if (!project || project.archived) throw new Error("当前项目不存在或已归档");
+    const nextProject = sanitizeProjectRecord({ ...project, updatedAt: importedAt });
+    const transaction = database.transaction(["projects", "results"], "readwrite");
+    const results = transaction.objectStore("results");
+    const projects = transaction.objectStore("projects");
+    await Promise.all([...records.map((record) => results.put(record)), projects.put(nextProject), transaction.done]);
     return listResults(projectId);
+  }
+
+  async function setVersionDecision(projectId, testId, decision, updatedAt = new Date().toISOString()) {
+    const id = versionRecordId(projectId, testId);
+    const transaction = database.transaction(["projects", "versions"], "readwrite");
+    const projects = transaction.objectStore("projects");
+    const versions = transaction.objectStore("versions");
+    const [project, version] = await Promise.all([projects.get(projectId), versions.get(id)]);
+    if (!project || project.archived || !version || version.projectId !== projectId) {
+      throw new Error("目标测试版本不存在或不属于当前项目");
+    }
+    const nextVersion = sanitizeVersionRecord({ ...version, decision, updatedAt });
+    const nextProject = sanitizeProjectRecord({ ...project, updatedAt });
+    await Promise.all([versions.put(nextVersion), projects.put(nextProject), transaction.done]);
+    return nextVersion;
   }
 
   async function exportPortfolio() {
@@ -171,5 +193,5 @@ export function createProjectRepository(database) {
     return portfolio;
   }
 
-  return { initialize, listProjects, currentProject, saveWorkspace, createProject, renameProject, requestSwitch, listVersions, listResults, syncPlan, importResults, exportPortfolio, replacePortfolio };
+  return { initialize, listProjects, currentProject, saveWorkspace, createProject, renameProject, requestSwitch, listVersions, listResults, syncPlan, importResults, setVersionDecision, exportPortfolio, replacePortfolio };
 }

@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.2.0</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.3.0</p>
           <h1>素材处理与分析工作台</h1>
           <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -178,6 +178,14 @@
           <span>或直接粘贴</span>
         </div>
         <label>转写正文<textarea id="transcript-text" rows="12" maxlength="200000" placeholder="在此粘贴已由本机引擎生成的文案，或导入 TXT / SRT / VTT…"></textarea></label>
+        <dl id="transcript-metadata" class="transcript-metadata" aria-label="统一转写数据摘要" hidden>
+          <div><dt>来源类型</dt><dd id="transcript-source-type">—</dd></div>
+          <div><dt>格式 / 分段</dt><dd id="transcript-format-segments">—</dd></div>
+          <div><dt>时长</dt><dd id="transcript-duration">—</dd></div>
+          <div><dt>解析器</dt><dd id="transcript-parser-version">—</dd></div>
+          <div class="wide"><dt>本地内容指纹</dt><dd id="transcript-fingerprint">—</dd></div>
+          <div class="wide"><dt>导入提醒</dt><dd id="transcript-warning-summary">无</dd></div>
+        </dl>
         <p id="transcription-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="transcription-error" class="error" role="alert"></p>
       </section>

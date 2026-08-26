@@ -10,7 +10,7 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.2.0</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.3.0</p>
         <h1>抖音千川素材编导</h1>
         <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
@@ -36,13 +36,15 @@
         <p id="project-status" class="success" role="status" aria-live="polite"></p>
         <p id="project-error" class="error" role="alert"></p>
       </section>
-      <section id="recent-task" class="recent-task" aria-labelledby="recent-task-label">
+      <section id="recent-task" class="recent-task director-desk" aria-labelledby="recent-task-label">
         <div class="recent-task-copy">
-          <span id="recent-task-label">最近任务 · 仅本地</span>
+          <span id="recent-task-label">今日编导行动台 · 仅本地</span>
           <strong id="recent-task-title">正在读取本地工作区…</strong>
           <small id="recent-task-description">正在读取当前浏览器中的本地编导项目。</small>
         </div>
         <button id="continue-recent-task" type="button" class="secondary" aria-describedby="recent-task-description" disabled>请稍候</button>
+        <div id="director-desk-list" class="director-desk-list" aria-label="其他优先动作" hidden></div>
+        <p id="director-desk-summary" class="director-desk-summary" role="status" aria-live="polite">正在汇总可靠的本地行动。</p>
       </section>
     </section>
 
@@ -298,6 +300,14 @@
             </select>
             <small id="parent-version-help" class="helper">只有明确延续某个旧版本时才选择；系统不会自动把相关差异解释为因果。</small>
           </label>
+          <section id="parent-version-recommendation" class="parent-version-recommendation wide" aria-labelledby="parent-version-recommendation-title" hidden>
+            <div>
+              <span>人工决策建议</span>
+              <strong id="parent-version-recommendation-title">暂无可延续版本</strong>
+              <p id="parent-version-recommendation-description">只参考你已确认且证据仍有效的人工结论。</p>
+            </div>
+            <button id="use-recommended-parent" type="button" class="secondary" aria-describedby="parent-version-recommendation-description" disabled>设为父版本</button>
+          </section>
           <button id="generate-plan" type="button" class="primary wide" aria-describedby="plan-readiness" disabled>生成素材策略与拍摄任务</button>
           <p id="plan-error" class="error wide" role="alert"></p>
         </div>
@@ -322,29 +332,108 @@
         </section>
         <details id="experiment-loop" class="card experiment-loop" open>
           <summary><span>测试版本链与结果回填</span><small>只按测试编号关联</small></summary>
-          <p class="helper">方案生成后保留测试编号、父版本和最低消耗。上线后导入 CSV / TSV 结果，形成“方案 → 执行 → 结果 → 下一版”的本地闭环。</p>
+          <p class="helper">方案生成后保留测试编号、父版本和最低消耗。上线后可快速手填单个版本，或批量导入 CSV / TSV，形成“方案 → 执行 → 结果 → 人工决策 → 下一版”的本地闭环。</p>
           <div class="experiment-counts" aria-label="版本与结果数量">
             <span id="version-count">0 个版本</span>
             <span id="result-count">0 条结果</span>
           </div>
+          <section id="experiment-next-action" class="experiment-next-action" aria-labelledby="experiment-next-action-title" hidden>
+            <div>
+              <span>实验下一步</span>
+              <strong id="experiment-next-action-title">等待测试版本</strong>
+              <p id="experiment-next-action-description">生成方案后会根据本地版本状态给出明确行动入口。</p>
+            </div>
+            <button id="run-experiment-next-action" type="button" class="secondary" aria-describedby="experiment-next-action-description" hidden>继续</button>
+          </section>
           <div class="experiment-toolbar">
-            <label class="experiment-filter" for="version-filter"><span>筛选版本</span>
-              <select id="version-filter" disabled>
-                <option value="all">全部版本</option>
-                <option value="pending">待回填</option>
-                <option value="insufficient">样本不足</option>
-                <option value="target_met">达到目标</option>
-                <option value="needs_review">需要复核</option>
-                <option value="quality_warning">口径提醒</option>
-              </select>
-            </label>
+            <div class="experiment-browse" aria-label="查找实验版本">
+              <label class="experiment-filter" for="version-filter"><span>状态</span>
+                <select id="version-filter" disabled>
+                  <option value="all">全部状态</option>
+                  <option value="pending">待回填</option>
+                  <option value="insufficient">样本不足</option>
+                  <option value="target_met">达到目标</option>
+                  <option value="needs_review">需要复核</option>
+                  <option value="quality_warning">口径提醒</option>
+                  <option value="decision_missing">尚未人工决策</option>
+                  <option value="decision_current">人工决策有效</option>
+                  <option value="decision_stale">人工决策待重审</option>
+                  <option value="decision_continue">结论：继续测试</option>
+                  <option value="decision_keep">结论：保留方案</option>
+                  <option value="decision_stop">结论：停止测试</option>
+                </select>
+              </label>
+              <label class="experiment-filter" for="version-batch-filter"><span>测试批次</span>
+                <select id="version-batch-filter" disabled>
+                  <option value="all">全部批次</option>
+                </select>
+              </label>
+              <label class="experiment-filter experiment-search" for="version-search"><span>搜索编号或变量</span>
+                <input id="version-search" type="search" maxlength="128" autocomplete="off" placeholder="测试编号 / 父版本 / 变量" aria-controls="version-timeline" disabled>
+              </label>
+            </div>
             <div class="experiment-export-actions" aria-label="导出当前项目实验台账">
               <button id="export-experiment-csv" type="button" class="secondary" disabled>台账 CSV</button>
               <button id="export-experiment-json" type="button" class="secondary" disabled>台账 JSON</button>
             </div>
           </div>
           <p id="experiment-summary" class="experiment-summary" role="status" aria-live="polite">尚无测试版本</p>
+          <div class="version-view-meta">
+            <p id="version-view-summary" class="version-view-summary" role="status" aria-live="polite" tabindex="-1">尚无可浏览版本</p>
+            <nav id="version-pagination" class="experiment-pagination" aria-label="实验版本分页" hidden>
+              <button id="version-page-prev" type="button" class="secondary" disabled>上一页</button>
+              <span id="version-page-state" aria-hidden="true">第 1 / 1 页</span>
+              <button id="version-page-next" type="button" class="secondary" disabled>下一页</button>
+            </nav>
+          </div>
           <div id="version-timeline" class="version-timeline"></div>
+          <details id="manual-result-entry" class="manual-result-entry">
+            <summary><span>快速回填单个版本</span><small>手动输入 · 仅本地</small></summary>
+            <form id="manual-result-form" class="manual-result-form" novalidate>
+              <label class="decision-field manual-result-wide">测试版本
+                <select id="manual-result-test-id" disabled></select>
+              </label>
+              <div class="manual-result-grid">
+                <label class="decision-field">消耗（必填）
+                  <input id="manual-result-spend" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="例如 400">
+                </label>
+                <label class="decision-field">ROI
+                  <input id="manual-result-roi" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="例如 1.8">
+                </label>
+                <label class="decision-field">成交金额
+                  <input id="manual-result-gmv" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="例如 720">
+                </label>
+              </div>
+              <details class="manual-result-advanced">
+                <summary><span>补充漏斗与播放指标</span><small>可选</small></summary>
+                <div class="manual-result-grid">
+                  <label class="decision-field">展示
+                    <input id="manual-result-impressions" type="text" inputmode="numeric" maxlength="32" autocomplete="off">
+                  </label>
+                  <label class="decision-field">点击
+                    <input id="manual-result-clicks" type="text" inputmode="numeric" maxlength="32" autocomplete="off">
+                  </label>
+                  <label class="decision-field">转化
+                    <input id="manual-result-conversions" type="text" inputmode="numeric" maxlength="32" autocomplete="off">
+                  </label>
+                  <label class="decision-field">CTR
+                    <input id="manual-result-ctr" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="4% 或 0.04">
+                  </label>
+                  <label class="decision-field">CVR
+                    <input id="manual-result-cvr" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="5% 或 0.05">
+                  </label>
+                  <label class="decision-field">3 秒播放率
+                    <input id="manual-result-three-second-rate" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="32% 或 0.32">
+                  </label>
+                  <label class="decision-field">完播率
+                    <input id="manual-result-completion-rate" type="text" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="18% 或 0.18">
+                  </label>
+                </div>
+              </details>
+              <p class="helper">已有结果会先载入供核对。点击后只生成本地预览；再次确认才会按测试编号替换旧结果。</p>
+              <button id="preview-manual-result" type="submit" class="secondary" disabled>预览手动结果</button>
+            </form>
+          </details>
           <label id="experiment-result-file-trigger" class="file-drop compact disabled" for="experiment-result-file">
             <span class="file-icon">CSV</span>
             <strong>回填已上线版本结果</strong>
@@ -361,7 +450,7 @@
           </section>
           <p id="experiment-result-status" class="success" role="status" aria-live="polite"></p>
           <p id="experiment-result-error" class="error" role="alert"></p>
-          <p class="helper"><strong>判断边界：</strong>状态只依据最低消耗、目标 ROI 与父版本的描述性对照，不预测投放结果，也不把单变量与结果差异自动认定为因果。</p>
+          <p class="helper"><strong>判断边界：</strong>状态只依据最低消耗、目标 ROI 与父版本的描述性对照，不预测投放结果，也不把单变量与结果差异自动认定为因果。人工决策必须填写理由；结果、目标 ROI、最低消耗或版本内容变化后，旧决策会自动标记为“需重新确认”。</p>
         </details>
       </section>
 
@@ -384,7 +473,7 @@
               <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
             </div>
           </div>
-          <p class="helper">V1.2.0 可在当前浏览器保存多个编导项目、测试版本链和结果记录；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
+          <p class="helper">V1.3.0 可在当前浏览器保存多个编导项目、测试版本、结果和人工决策记录；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>
@@ -619,7 +708,7 @@
             <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
             <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
           </div>
-          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.2.0 会同时备份本地项目、测试版本和结果。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
+          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.3.0 会同时备份本地项目、测试版本、结果和人工决策。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
           <details class="rollback-guide">
             <summary><span>安装失败与回退方法</span></summary>
             <ol>

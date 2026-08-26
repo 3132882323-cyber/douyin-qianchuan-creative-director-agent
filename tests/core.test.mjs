@@ -81,7 +81,7 @@ test("generates a controlled strategy from an optional creative task and histori
   assert.equal(plan.items[1].minSpend, 500);
   assert.match(plan.items[1].hypothesis, /仅将前三秒钩子改为/);
   assert.match(plan.items[1].stopCondition, /基线 80%/);
-  assert.equal(plan.version, "1.2.0");
+  assert.equal(plan.version, "1.3.0");
   assert.match(plan.dependencyFingerprint, /^fnv1a32:[0-9a-f]{8}$/u);
 });
 

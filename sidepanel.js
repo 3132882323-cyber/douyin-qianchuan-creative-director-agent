@@ -71,13 +71,23 @@ import {
   sanitizeProjectWorkspace,
   validateProjectPortfolio
 } from "./src/project-model.js";
-import { experimentQualityWarningLabel, parseExperimentResults } from "./src/experiment-results.js";
+import { experimentQualityWarningLabel, parseExperimentResults, parseManualExperimentResult } from "./src/experiment-results.js";
+import {
+  EXPERIMENT_DECISION_METRIC_LABELS,
+  EXPERIMENT_DECISION_OUTCOME_LABELS,
+  createExperimentDecision,
+  experimentDataHealth
+} from "./src/experiment-decision.js";
 import {
   buildExperimentLedgerSnapshot,
   experimentLedgerToCsv,
-  filterExperimentTimeline,
   summarizeExperimentTimeline
 } from "./src/experiment-ledger.js";
+import { buildExperimentNextAction, buildExperimentVersionActions, recommendExperimentParent } from "./src/experiment-actions.js";
+import { buildExperimentView, experimentBatchOptions } from "./src/experiment-view.js";
+import { buildExperimentParentComparison } from "./src/experiment-comparison.js";
+import { buildCreativeVersionDiff } from "./src/creative-version-diff.js";
+import { buildDirectorDesk } from "./src/director-desk.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["creativeTask", "productBrief", "targetRoi", "lastAnalysis", "creativePlan", "planExportReceipt", "updateSettings", "lastUpdateCheck", "migrationNoticePending", "onboardingDismissed"];
@@ -109,6 +119,10 @@ const state = {
   projects: [],
   versions: [],
   experimentResults: [],
+  experimentNextAction: null,
+  directorDesk: null,
+  recommendedParent: null,
+  experimentViewPage: 1,
   pendingResultImport: null,
   projectSwitching: false,
   matchData: null,
@@ -297,7 +311,7 @@ function renderProjectHub() {
   setNodeText("#project-local-meta", state.currentProject
     ? `${state.versions.length} 个测试版本 · ${state.experimentResults.length} 条结果 · 仅当前浏览器`
     : "项目集合不可用；当前单项目工作区仍可继续使用");
-  setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 最近任务` : "最近任务 · 仅本地");
+  setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 今日编导行动台` : "今日编导行动台 · 仅本地");
 }
 
 function metricText(result) {
@@ -311,17 +325,509 @@ function metricText(result) {
   return parts.join(" · ");
 }
 
+function decisionTimeLabel(value) {
+  const timestamp = new Date(value || "");
+  return Number.isNaN(timestamp.getTime()) ? "时间未知" : timestamp.toLocaleString("zh-CN", { hour12: false });
+}
+
+function renderExperimentParentComparison(entry, timeline) {
+  const comparison = buildExperimentParentComparison(entry, timeline);
+  if (!comparison) return null;
+  const details = element("details", "version-comparison");
+  const summary = element("summary");
+  const summaryText = element("span");
+  summaryText.append(
+    element("strong", "", "父子指标对照"),
+    element("small", "", comparison.summary)
+  );
+  summary.append(summaryText, element("b", "comparison-state", comparison.ready ? "可对照" : "等待数据"));
+  details.append(summary);
+  if (comparison.ready) {
+    details.append(element("p", "comparison-caption", `数值顺序：当前版本 / 父版本 ${comparison.parentTestId}`));
+    const metrics = element("div", "comparison-metrics");
+    for (const metric of comparison.metrics) {
+      const item = element("div", "comparison-metric");
+      item.append(
+        element("span", "", metric.label),
+        element("strong", "", `${metric.currentDisplay} / ${metric.parentDisplay}`),
+        element("small", "", `差值 ${metric.deltaDisplay}`)
+      );
+      metrics.append(item);
+    }
+    details.append(
+      metrics,
+      element("small", "comparison-sample", `消耗参考：当前 ¥${formatMoney(comparison.sample.current.spend)} / 最低 ¥${formatMoney(comparison.sample.current.minSpend)}；父版本 ¥${formatMoney(comparison.sample.parent.spend)} / 最低 ¥${formatMoney(comparison.sample.parent.minSpend)}`)
+    );
+  } else {
+    details.append(element("p", "comparison-wait", comparison.label));
+  }
+  details.append(element("small", "comparison-notice", comparison.notice));
+  return details;
+}
+
+function renderCreativeVersionDiff(entry, timeline) {
+  const diff = buildCreativeVersionDiff(entry, timeline);
+  if (!diff) return null;
+  const details = element("details", "version-content-diff");
+  details.dataset.diffState = diff.code;
+  const summary = element("summary");
+  const summaryText = element("span");
+  summaryText.append(
+    element("strong", "", "父子可拍内容差异"),
+    element("small", "", diff.summary)
+  );
+  const badge = element("b", "content-diff-state", diff.badge);
+  badge.dataset.diffState = diff.code;
+  summary.append(summaryText, badge);
+  details.append(summary, element("p", "content-diff-guidance", diff.label));
+
+  for (const [group, changes] of [
+    ["创意语义", diff.semanticChanges],
+    ["测试上下文", diff.contextChanges],
+    ["生产资料", diff.productionChanges]
+  ]) {
+    if (!changes.length) continue;
+    const section = element("section", "content-diff-group");
+    section.append(element("strong", "content-diff-group-title", `${group} · ${changes.length} 项`));
+    for (const change of changes) {
+      const field = element("details", "content-diff-field");
+      const fieldSummary = element("summary");
+      const fieldTitle = element("span");
+      fieldTitle.append(
+        element("strong", "", change.label),
+        element("small", "", change.expected ? "声明变量" : change.guardrail ? "需重点核对" : change.groupLabel)
+      );
+      fieldSummary.append(fieldTitle);
+      const values = element("div", "content-diff-values");
+      for (const [label, value] of [["父版本", change.before], ["当前版本", change.after]]) {
+        const item = element("div");
+        item.append(element("span", "", label), element("pre", "", value || "未填写"));
+        values.append(item);
+      }
+      field.append(fieldSummary, values);
+      section.append(field);
+    }
+    details.append(section);
+  }
+  details.append(element("small", "content-diff-notice", diff.notice));
+  return details;
+}
+
+const MANUAL_RESULT_INPUTS = Object.freeze({
+  spend: "#manual-result-spend",
+  gmv: "#manual-result-gmv",
+  roi: "#manual-result-roi",
+  impressions: "#manual-result-impressions",
+  clicks: "#manual-result-clicks",
+  conversions: "#manual-result-conversions",
+  ctr: "#manual-result-ctr",
+  cvr: "#manual-result-cvr",
+  threeSecondRate: "#manual-result-three-second-rate",
+  completionRate: "#manual-result-completion-rate"
+});
+const MANUAL_RESULT_RATE_FIELDS = new Set(["ctr", "cvr", "threeSecondRate", "completionRate"]);
+
+function manualResultDisplay(value, rate = false) {
+  if (!Number.isFinite(value)) return "";
+  if (!rate) return String(value);
+  return `${Number((value * 100).toFixed(4))}%`;
+}
+
+function populateManualResultForm(testId, { force = false } = {}) {
+  const select = $("#manual-result-test-id");
+  if (![...select.options].some((option) => option.value === testId)) return;
+  select.value = testId;
+  const result = state.experimentResults.find((entry) => entry.testId === testId) || null;
+  const sourceKey = `${testId}:${result?.importedAt || "none"}`;
+  if (!force && select.dataset.loadedSource === sourceKey) return;
+  for (const [field, selector] of Object.entries(MANUAL_RESULT_INPUTS)) {
+    $(selector).value = manualResultDisplay(result?.metrics?.[field], MANUAL_RESULT_RATE_FIELDS.has(field));
+  }
+  select.dataset.loadedSource = sourceKey;
+}
+
+function renderManualResultOptions(timeline) {
+  const select = $("#manual-result-test-id");
+  const previous = select.value;
+  select.replaceChildren();
+  for (const entry of timeline) {
+    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}${entry.result ? " · 已有结果" : ""}`);
+    option.value = entry.version.testId;
+    select.append(option);
+  }
+  const fallback = timeline.find((entry) => entry.evaluation.code === "pending")?.version.testId || timeline[0]?.version.testId || "";
+  const next = timeline.some((entry) => entry.version.testId === previous) ? previous : fallback;
+  select.value = next;
+  const editable = Boolean(timeline.length && state.projectRepository && state.currentProject);
+  select.disabled = !editable;
+  $("#preview-manual-result").disabled = !editable;
+  if (next) populateManualResultForm(next);
+  else {
+    select.dataset.loadedSource = "";
+    for (const selector of Object.values(MANUAL_RESULT_INPUTS)) $(selector).value = "";
+  }
+}
+
+function openManualResultForVersion(testId, { focusMetric = "spend", announce = true } = {}) {
+  const select = $("#manual-result-test-id");
+  if (![...select.options].some((option) => option.value === testId)) {
+    if (announce) setFeedback("#experiment-result-status", "#experiment-result-error", { error: "目标测试版本已不存在或不属于当前项目。" });
+    return false;
+  }
+  $("#manual-result-entry").open = true;
+  populateManualResultForm(testId, { force: true });
+  const targetSelector = MANUAL_RESULT_INPUTS[focusMetric] || MANUAL_RESULT_INPUTS.spend;
+  if (["ctr", "cvr", "threeSecondRate", "completionRate", "impressions", "clicks", "conversions"].includes(focusMetric)) {
+    $("#manual-result-entry .manual-result-advanced").open = true;
+  }
+  if (announce) {
+    const hasResult = state.experimentResults.some((entry) => entry.testId === testId);
+    setFeedback("#experiment-result-status", "#experiment-result-error", {
+      status: `已载入 ${testId} 的${hasResult ? "已有结果" : "空白回填表单"}；预览并再次确认前不会写入。`
+    });
+  }
+  focusAndReveal($(targetSelector));
+  return true;
+}
+
+function renderExperimentNextAction(timeline) {
+  const next = buildExperimentNextAction(timeline);
+  state.experimentNextAction = next;
+  const panel = $("#experiment-next-action");
+  panel.hidden = next.code === "empty";
+  panel.dataset.actionCode = next.code;
+  setNodeText("#experiment-next-action-title", next.title);
+  setNodeText("#experiment-next-action-description", next.description);
+  const button = $("#run-experiment-next-action");
+  button.hidden = !next.actionLabel;
+  button.disabled = !next.actionLabel;
+  button.textContent = next.actionLabel || "继续";
+}
+
+function updateParentVersionHelp(testId = "") {
+  if (!testId) {
+    setNodeText("#parent-version-help", "当前为新测试起点。只有明确延续旧版本时才选择父版本；系统不会自动解释因果。");
+    return;
+  }
+  const entry = buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5))
+    .find((candidate) => candidate.version.testId === testId);
+  const decisionLabel = entry?.decisionState?.code === "current"
+    ? `人工结论“${EXPERIMENT_DECISION_OUTCOME_LABELS[entry.version.decision.outcome]}”`
+    : entry?.decisionState?.code === "stale" ? "人工决策待重新确认" : "尚无有效人工决策";
+  setNodeText("#parent-version-help", `当前选择 ${testId} · ${decisionLabel}。只有点击生成后才会建立新版本关系；这不是因果或胜负判定。`);
+}
+
+function selectParentVersion(testId, { announce = true } = {}) {
+  const select = $("#parent-version");
+  if (![...select.options].some((option) => option.value === testId)) {
+    if (announce) setFeedback("#experiment-result-status", "#experiment-result-error", { error: "目标父版本已不存在或不属于当前项目。" });
+    return false;
+  }
+  select.value = testId;
+  updateParentVersionHelp(testId);
+  if (announce) {
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: `已选择 ${testId} 作为下一轮父版本；尚未生成或修改任何方案。` });
+    focusAndReveal(select);
+  }
+  return true;
+}
+
+function renderParentVersionRecommendation(timeline) {
+  const recommendation = recommendExperimentParent(timeline);
+  state.recommendedParent = recommendation;
+  const panel = $("#parent-version-recommendation");
+  panel.hidden = !recommendation;
+  const button = $("#use-recommended-parent");
+  button.disabled = !recommendation || !state.currentProject;
+  if (!recommendation) {
+    setNodeText("#parent-version-recommendation-title", "暂无可延续版本");
+    setNodeText("#parent-version-recommendation-description", "只参考你已确认且证据仍有效的人工结论。");
+    return;
+  }
+  setNodeText("#parent-version-recommendation-title", `${recommendation.testId} · ${recommendation.outcomeLabel}`);
+  const time = recommendation.decidedAt ? decisionTimeLabel(recommendation.decidedAt) : "已保存的人工决策";
+  setNodeText("#parent-version-recommendation-description", `${time}。系统只提供快捷选择，不会自动生成、宣布胜负或改变旧版本。`);
+}
+
+function focusExperimentVersion(testId, { openDecision = false, openContentDiff = false } = {}) {
+  const card = [...document.querySelectorAll(".version-item")].find((entry) => entry.dataset.testId === testId);
+  if (!card) return false;
+  if (openDecision) {
+    const decision = card.querySelector(".version-decision");
+    if (decision) decision.open = true;
+    const target = decision?.querySelector("textarea") || decision?.querySelector("summary") || card;
+    focusAndReveal(target);
+    return true;
+  }
+  if (openContentDiff) {
+    const contentDiff = card.querySelector(".version-content-diff");
+    if (contentDiff) contentDiff.open = true;
+    const target = contentDiff?.querySelector("summary") || card;
+    if (target === card) card.tabIndex = -1;
+    focusAndReveal(target);
+    return true;
+  }
+  card.tabIndex = -1;
+  focusAndReveal(card);
+  return true;
+}
+
+async function refreshCurrentProjectRecord() {
+  const project = await state.projectRepository?.currentProject();
+  if (!project) return;
+  state.currentProject = project;
+  state.projects = [project, ...state.projects.filter((entry) => entry.id !== project.id)]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function renderExperimentDecisionEditor(entry) {
+  const decision = entry.version.decision;
+  const decisionState = entry.decisionState;
+  const dataHealth = experimentDataHealth({ result: entry.result, evaluation: entry.evaluation });
+  const details = element("details", "version-decision");
+  details.open = decisionState.stale;
+  const summary = element("summary");
+  const summaryText = element("span");
+  summaryText.append(element("strong", "", "人工决策"), element("small", "", decisionState.label));
+  const auditBadge = element("b", "decision-state-badge", decisionState.stale ? "需重审" : decision ? "已记录" : "待记录");
+  auditBadge.dataset.decisionState = decisionState.code;
+  summary.append(summaryText, auditBadge);
+  details.append(summary);
+
+  const form = element("form", "decision-form");
+  const health = element("p", `decision-health${dataHealth.ready ? " ready" : ""}`, `数据健康：${dataHealth.label}。${decisionState.stale ? decisionState.detail : "系统只展示描述性状态，结论必须由编导人工填写。"}`);
+  form.append(health);
+
+  const outcomeLabel = element("label", "decision-field");
+  outcomeLabel.append(element("span", "", "人工结论"));
+  const outcome = element("select");
+  outcome.setAttribute("aria-label", `${entry.version.testId}：人工结论`);
+  for (const [value, label] of Object.entries(EXPERIMENT_DECISION_OUTCOME_LABELS)) outcome.append(new Option(label, value));
+  outcome.value = decision?.outcome || "continue";
+  outcomeLabel.append(outcome);
+
+  const primaryLabel = element("label", "decision-field");
+  primaryLabel.append(element("span", "", "主指标"));
+  const primaryMetric = element("select");
+  primaryMetric.setAttribute("aria-label", `${entry.version.testId}：主指标`);
+  for (const [value, label] of Object.entries(EXPERIMENT_DECISION_METRIC_LABELS)) primaryMetric.append(new Option(label, value));
+  primaryMetric.value = decision?.primaryMetric || "roi";
+  primaryLabel.append(primaryMetric);
+
+  const grid = element("div", "decision-grid");
+  grid.append(outcomeLabel, primaryLabel);
+  form.append(grid);
+
+  const guardrails = element("fieldset", "decision-guardrails");
+  guardrails.append(element("legend", "", "护栏指标（可多选）"));
+  const guardrailInputs = [];
+  for (const [value, label] of Object.entries(EXPERIMENT_DECISION_METRIC_LABELS)) {
+    const item = element("label");
+    const input = element("input");
+    input.type = "checkbox";
+    input.value = value;
+    input.checked = decision?.guardrailMetrics?.includes(value) || false;
+    item.append(input, document.createTextNode(label));
+    guardrails.append(item);
+    guardrailInputs.push(input);
+  }
+  const syncGuardrails = () => {
+    for (const input of guardrailInputs) {
+      input.disabled = input.value === primaryMetric.value;
+      if (input.disabled) input.checked = false;
+    }
+  };
+  primaryMetric.addEventListener("change", syncGuardrails);
+  syncGuardrails();
+  form.append(guardrails);
+
+  const reasonLabel = element("label", "decision-field");
+  reasonLabel.append(element("span", "", "判断理由（必填）"));
+  const reason = element("textarea");
+  reason.rows = 3;
+  reason.maxLength = 600;
+  reason.placeholder = "写明看到的证据、风险和下一步，不把相关差异写成因果结论。";
+  reason.value = decision?.reason || "";
+  reason.setAttribute("aria-label", `${entry.version.testId}：人工决策理由`);
+  reasonLabel.append(reason);
+  form.append(reasonLabel);
+
+  if (decision) {
+    form.append(element("p", "decision-audit", `${decisionState.stale ? "旧记录" : "当前记录"}：${decisionTimeLabel(decision.decidedAt)} · 证据 ${decision.evidence.fingerprint}`));
+  }
+  const actions = element("div", "decision-actions");
+  const save = element("button", "secondary", decision ? "重新确认并保存" : "保存人工决策");
+  save.type = "submit";
+  const clear = element("button", "secondary decision-clear", "清除决策记录");
+  clear.type = "button";
+  clear.hidden = !decision;
+  actions.append(save, clear);
+  const feedback = element("p", "decision-feedback");
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+  form.append(actions);
+  form.append(feedback);
+
+  const editable = Boolean(state.projectRepository && state.currentProject);
+  for (const control of [outcome, primaryMetric, reason, save, clear, ...guardrailInputs]) control.disabled = !editable || control.disabled;
+  if (!editable) feedback.textContent = "本地项目数据库不可用，暂时不能保存人工决策。";
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.projectRepository || !state.currentProject) return;
+    save.disabled = true;
+    clear.disabled = true;
+    feedback.className = "decision-feedback";
+    feedback.textContent = "正在保存到当前浏览器…";
+    try {
+      const nextDecision = createExperimentDecision({
+        outcome: outcome.value,
+        primaryMetric: primaryMetric.value,
+        guardrailMetrics: guardrailInputs.filter((input) => input.checked).map((input) => input.value),
+        reason: reason.value
+      }, {
+        version: entry.version,
+        result: entry.result,
+        evaluation: entry.evaluation,
+        targetRoi: Number($("#target-roi").value || 1.5)
+      });
+      await state.projectRepository.setVersionDecision(state.currentProject.id, entry.version.testId, nextDecision);
+      await refreshCurrentProjectRecord();
+      await refreshExperimentLoop();
+      setFeedback("#experiment-result-status", "#experiment-result-error", { status: `已保存 ${entry.version.testId} 的人工决策；后续证据变化时会自动提示重新确认。` });
+    } catch (error) {
+      save.disabled = false;
+      clear.disabled = !decision;
+      feedback.className = "decision-feedback error";
+      feedback.textContent = error.message || "人工决策未能保存";
+    }
+  });
+
+  clear.addEventListener("click", async () => {
+    if (!decision || !state.projectRepository || !state.currentProject) return;
+    if (!window.confirm(`将清除 ${entry.version.testId} 的人工决策记录；测试版本和投放结果不会删除。是否继续？`)) return;
+    save.disabled = true;
+    clear.disabled = true;
+    try {
+      await state.projectRepository.setVersionDecision(state.currentProject.id, entry.version.testId, null);
+      await refreshCurrentProjectRecord();
+      await refreshExperimentLoop();
+      setFeedback("#experiment-result-status", "#experiment-result-error", { status: "人工决策记录已清除；测试版本和结果保持不变。" });
+    } catch (error) {
+      save.disabled = false;
+      clear.disabled = false;
+      feedback.className = "decision-feedback error";
+      feedback.textContent = error.message || "人工决策未能清除";
+    }
+  });
+
+  details.append(form);
+  return details;
+}
+
+function currentExperimentTimeline() {
+  return buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5));
+}
+
+function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {}) {
+  const batchFilter = $("#version-batch-filter");
+  if (refreshBatches) {
+    const selectedBatch = batchFilter.value || "all";
+    batchFilter.replaceChildren(new Option("全部批次", "all"));
+    for (const batch of experimentBatchOptions(timeline)) batchFilter.append(new Option(`${batch.id} · ${batch.count} 个`, batch.id));
+    batchFilter.value = [...batchFilter.options].some((option) => option.value === selectedBatch) ? selectedBatch : "all";
+  }
+  const view = buildExperimentView(timeline, {
+    filter: $("#version-filter").value || "all",
+    batchId: batchFilter.value,
+    query: $("#version-search").value,
+    page: state.experimentViewPage
+  });
+  state.experimentViewPage = view.page;
+  $("#version-filter").disabled = !timeline.length;
+  batchFilter.disabled = !timeline.length;
+  $("#version-search").disabled = !timeline.length;
+  setNodeText("#version-view-summary", !timeline.length
+    ? "尚无可浏览版本"
+    : view.total
+      ? `显示 ${view.from}–${view.to} / 符合 ${view.total}（全部 ${view.overallTotal}） · 第 ${view.page} / ${view.totalPages} 页`
+      : `当前组合没有匹配版本（全部 ${view.overallTotal}）`);
+  setNodeText("#version-page-state", `第 ${view.page} / ${view.totalPages} 页`);
+  const pagination = $("#version-pagination");
+  pagination.hidden = view.totalPages <= 1;
+  $("#version-page-prev").disabled = view.page <= 1;
+  $("#version-page-next").disabled = view.page >= view.totalPages;
+
+  const container = $("#version-timeline");
+  container.replaceChildren();
+  container.scrollTop = 0;
+  if (!timeline.length) {
+    container.append(element("p", "empty-inline", "生成下一版任务后，这里会保留测试编号、父版本与结果状态。"));
+    return;
+  }
+  if (!view.total) {
+    container.append(element("p", "empty-inline", "当前状态、批次和搜索条件组合下没有测试版本。"));
+    return;
+  }
+  for (const entry of view.items) {
+    const card = element("article", "version-item");
+    card.dataset.testId = entry.version.testId;
+    const cardActions = buildExperimentVersionActions(entry);
+    const head = element("div", "version-item-head");
+    const title = element("span");
+    title.append(element("strong", "", entry.version.testId), element("small", "", entry.version.parentVersionId ? `父版本 ${entry.version.parentVersionId}` : "新测试起点"));
+    const badge = element("b", "version-result-badge", entry.evaluation.label);
+    badge.dataset.resultState = entry.evaluation.code;
+    head.append(title, badge);
+    const dataHealth = experimentDataHealth({ result: entry.result, evaluation: entry.evaluation });
+    const contentDiff = renderCreativeVersionDiff(entry, timeline);
+    const parentComparison = renderExperimentParentComparison(entry, timeline);
+    const quickActions = element("div", "version-quick-actions");
+    const resultAction = element("button", "secondary", cardActions.result.label);
+    resultAction.type = "button";
+    resultAction.setAttribute("aria-label", `${entry.version.testId}：${cardActions.result.label}`);
+    resultAction.disabled = !state.projectRepository || !state.currentProject;
+    resultAction.addEventListener("click", () => openManualResultForVersion(entry.version.testId, { focusMetric: cardActions.result.focusMetric }));
+    const decisionAction = element("button", "secondary", cardActions.decision.label);
+    decisionAction.type = "button";
+    decisionAction.setAttribute("aria-label", `${entry.version.testId}：${cardActions.decision.label}`);
+    decisionAction.addEventListener("click", () => focusExperimentVersion(entry.version.testId, { openDecision: true }));
+    quickActions.append(resultAction, decisionAction);
+    if (cardActions.parent) {
+      const parentAction = element("button", "secondary decision-parent-action", cardActions.parent.label);
+      parentAction.type = "button";
+      parentAction.setAttribute("aria-label", `${entry.version.testId}：${cardActions.parent.label}`);
+      parentAction.disabled = !state.projectRepository || !state.currentProject;
+      parentAction.addEventListener("click", () => selectParentVersion(entry.version.testId));
+      quickActions.append(parentAction);
+    }
+    card.append(
+      head,
+      element("p", "", `${entry.version.primaryVariable} · 基线 ${entry.version.baselineCreative || "未填写"}`),
+      element("p", "", metricText(entry.result)),
+      element("small", `version-data-health${dataHealth.ready ? " ready" : ""}`, `数据健康：${dataHealth.label}`),
+      ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
+      element("small", "", entry.evaluation.detail),
+      ...(contentDiff ? [contentDiff] : []),
+      ...(parentComparison ? [parentComparison] : []),
+      quickActions,
+      renderExperimentDecisionEditor(entry)
+    );
+    container.append(card);
+  }
+}
+
 function renderExperimentLoop() {
-  const timeline = buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5));
+  const timeline = currentExperimentTimeline();
   const summary = summarizeExperimentTimeline(timeline);
-  const selectedFilter = $("#version-filter").value || "all";
-  const filteredTimeline = filterExperimentTimeline(timeline, selectedFilter);
   setNodeText("#version-count", `${timeline.length} 个版本`);
   setNodeText("#result-count", `${state.experimentResults.length} 条结果`);
   setNodeText("#experiment-summary", timeline.length
-    ? `待回填 ${summary.pending} · 样本不足 ${summary.insufficient} · 达标 ${summary.targetMet} · 需复核 ${summary.needsReview} · 口径提醒 ${summary.qualityWarnings} · 已回填消耗 ¥${formatMoney(summary.totalSpend)}`
+    ? `待回填 ${summary.pending} · 样本不足 ${summary.insufficient} · 达标 ${summary.targetMet} · 需复核 ${summary.needsReview} · 人工决策 ${summary.currentDecisions} · 待重审 ${summary.staleDecisions} · 已回填消耗 ¥${formatMoney(summary.totalSpend)}`
     : "尚无测试版本；生成下一版任务后会自动建立实验台账。");
-  $("#version-filter").disabled = !timeline.length;
+  renderExperimentNextAction(timeline);
+  renderManualResultOptions(timeline);
+  renderExperimentVersionBrowser(timeline, { refreshBatches: true });
   $("#export-experiment-csv").disabled = !timeline.length;
   $("#export-experiment-json").disabled = !timeline.length;
   const parentSelect = $("#parent-version");
@@ -331,40 +837,20 @@ function renderExperimentLoop() {
   rootOption.value = "";
   parentSelect.append(rootOption);
   for (const entry of timeline) {
-    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}`);
+    const decisionSuffix = entry.decisionState.code === "current"
+      ? ` · 人工：${EXPERIMENT_DECISION_OUTCOME_LABELS[entry.version.decision.outcome]}`
+      : entry.decisionState.code === "stale" ? " · 人工决策待重审" : "";
+    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}${decisionSuffix}`);
     option.value = entry.version.testId;
     parentSelect.append(option);
   }
   parentSelect.value = timeline.some((entry) => entry.version.testId === selectedParent) ? selectedParent : "";
   parentSelect.disabled = !state.projectRepository || !state.currentProject;
-
-  const container = $("#version-timeline");
-  container.replaceChildren();
-  if (!timeline.length) {
-    container.append(element("p", "empty-inline", "生成下一版任务后，这里会保留测试编号、父版本与结果状态。"));
-  } else if (!filteredTimeline.length) {
-    container.append(element("p", "empty-inline", "当前筛选条件下没有测试版本。"));
-  } else {
-    for (const entry of filteredTimeline.slice(0, 100)) {
-      const card = element("article", "version-item");
-      const head = element("div", "version-item-head");
-      const title = element("span");
-      title.append(element("strong", "", entry.version.testId), element("small", "", entry.version.parentVersionId ? `父版本 ${entry.version.parentVersionId}` : "新测试起点"));
-      const badge = element("b", "version-result-badge", entry.evaluation.label);
-      badge.dataset.resultState = entry.evaluation.code;
-      head.append(title, badge);
-      card.append(
-        head,
-        element("p", "", `${entry.version.primaryVariable} · 基线 ${entry.version.baselineCreative || "未填写"}`),
-        element("p", "", metricText(entry.result)),
-        ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
-        element("small", "", entry.evaluation.detail)
-      );
-      container.append(card);
-    }
-  }
+  updateParentVersionHelp(parentSelect.value);
+  renderParentVersionRecommendation(timeline);
   $("#experiment-result-file-trigger").classList.toggle("disabled", !timeline.length);
   $("#experiment-result-file").disabled = !timeline.length;
+  renderRecentTask();
   renderProjectHub();
 }
 
@@ -376,16 +862,99 @@ function renderResultImportPreview() {
     $("#confirm-result-import").disabled = true;
     return;
   }
-  setNodeText("#result-preview-summary", `可匹配 ${value.matched.length} / ${value.totalRows} 行${value.warnings.length ? ` · ${value.warnings.length} 条口径提醒` : ""}`);
+  setNodeText("#result-preview-summary", value.inputMode === "manual"
+    ? `${value.matched[0]?.testId || "手动结果"} · 等待确认${value.warnings.length ? ` · ${value.warnings.length} 条口径提醒` : ""}`
+    : `可匹配 ${value.matched.length} / ${value.totalRows} 行${value.warnings.length ? ` · ${value.warnings.length} 条口径提醒` : ""}`);
   const detail = [];
   if (value.unmatched.length) detail.push(`未匹配编号：${value.unmatched.slice(0, 5).map((entry) => entry.testId).join("、")}${value.unmatched.length > 5 ? ` 等 ${value.unmatched.length} 条` : ""}。未匹配行不会写入。`);
   if (value.warnings.length) detail.push(`${value.warnings.slice(0, 2).map((entry) => entry.message).join("；")}${value.warnings.length > 2 ? `；另有 ${value.warnings.length - 2} 条` : ""}。这些行可继续写入，但必须人工核对口径。`);
-  if (!detail.length) detail.push("全部测试编号均属于当前项目；确认后写入本地版本记录。");
+  if (!detail.length) detail.push(value.inputMode === "manual"
+    ? "数据已通过本地校验；确认后写入该测试编号，相同编号的旧结果才会被替换。"
+    : "全部测试编号均属于当前项目；确认后写入本地版本记录。");
   setNodeText("#result-preview-detail", detail.join(" "));
   $("#confirm-result-import").disabled = value.matched.length === 0;
 }
 
-$("#version-filter").addEventListener("change", renderExperimentLoop);
+function resetExperimentBrowse(filter = "all") {
+  if ([...$("#version-filter").options].some((option) => option.value === filter)) $("#version-filter").value = filter;
+  $("#version-batch-filter").value = "all";
+  $("#version-search").value = "";
+  state.experimentViewPage = 1;
+}
+
+$("#version-filter").addEventListener("change", () => {
+  state.experimentViewPage = 1;
+  renderExperimentVersionBrowser(currentExperimentTimeline());
+});
+
+$("#version-batch-filter").addEventListener("change", () => {
+  state.experimentViewPage = 1;
+  renderExperimentVersionBrowser(currentExperimentTimeline());
+});
+
+$("#version-search").addEventListener("input", () => {
+  state.experimentViewPage = 1;
+  renderExperimentVersionBrowser(currentExperimentTimeline());
+});
+
+$("#version-page-prev").addEventListener("click", () => {
+  state.experimentViewPage = Math.max(1, state.experimentViewPage - 1);
+  renderExperimentVersionBrowser(currentExperimentTimeline());
+  focusAndReveal($("#version-view-summary"));
+});
+
+$("#version-page-next").addEventListener("click", () => {
+  state.experimentViewPage += 1;
+  renderExperimentVersionBrowser(currentExperimentTimeline());
+  focusAndReveal($("#version-view-summary"));
+});
+
+$("#parent-version").addEventListener("change", (event) => updateParentVersionHelp(event.target.value));
+
+$("#use-recommended-parent").addEventListener("click", () => {
+  if (state.recommendedParent) selectParentVersion(state.recommendedParent.testId);
+});
+
+$("#manual-result-test-id").addEventListener("change", (event) => {
+  populateManualResultForm(event.target.value, { force: true });
+});
+
+function runExperimentAction(next) {
+  if (!next?.testId) return false;
+  switchView("next", { scrollTop: false });
+  $("#experiment-loop").open = true;
+  if (next.target === "parent") {
+    return selectParentVersion(next.testId);
+  }
+  resetExperimentBrowse(next.filter);
+  renderExperimentLoop();
+  if (next.target === "manual_result") {
+    return openManualResultForVersion(next.testId, { focusMetric: next.focusMetric });
+  }
+  return focusExperimentVersion(next.testId, { openDecision: next.target === "decision" });
+}
+
+$("#run-experiment-next-action").addEventListener("click", () => {
+  runExperimentAction(state.experimentNextAction);
+});
+
+$("#manual-result-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  setFeedback("#experiment-result-status", "#experiment-result-error");
+  try {
+    state.pendingResultImport = parseManualExperimentResult({
+      testId: $("#manual-result-test-id").value,
+      ...Object.fromEntries(Object.entries(MANUAL_RESULT_INPUTS).map(([field, selector]) => [field, $(selector).value]))
+    }, state.versions.map((version) => version.testId));
+    renderResultImportPreview();
+    setFeedback("#experiment-result-status", "#experiment-result-error", { status: state.pendingResultImport.notice });
+    focusAndReveal($("#confirm-result-import"));
+  } catch (error) {
+    state.pendingResultImport = null;
+    renderResultImportPreview();
+    setFeedback("#experiment-result-status", "#experiment-result-error", { error: error.message || "手动结果无法校验" });
+  }
+});
 
 function currentExperimentLedgerSnapshot() {
   if (!state.currentProject || !state.versions.length) throw new Error("当前项目还没有可导出的测试版本");
@@ -582,12 +1151,16 @@ $("#confirm-result-import").addEventListener("click", async () => {
   if (!pending?.matched?.length || !state.projectRepository || !state.currentProject) return;
   const partial = pending.unmatched.length ? `\n\n另有 ${pending.unmatched.length} 行测试编号不属于当前项目，将跳过。` : "";
   const warnings = pending.warnings.length ? `\n\n发现 ${pending.warnings.length} 条指标口径提醒；继续表示你已人工核对并接受这些口径差异。` : "";
-  if (!window.confirm(`将把 ${pending.matched.length} 行结果写入当前项目；相同测试编号的旧结果会被替换。${partial}${warnings}\n\n是否继续？`)) return;
+  const writeScope = pending.inputMode === "manual" ? `测试版本 ${pending.matched[0].testId} 的手动结果` : `${pending.matched.length} 行结果`;
+  if (!window.confirm(`将把${writeScope}写入当前项目；相同测试编号的旧结果会被替换。${partial}${warnings}\n\n是否继续？`)) return;
   try {
     await state.projectRepository.importResults(state.currentProject.id, pending.matched);
+    await refreshCurrentProjectRecord();
     state.pendingResultImport = null;
     renderResultImportPreview();
+    $("#manual-result-test-id").dataset.loadedSource = "";
     await refreshExperimentLoop();
+    if (pending.inputMode === "manual") populateManualResultForm(pending.matched[0].testId, { force: true });
     setFeedback("#experiment-result-status", "#experiment-result-error", { status: pending.warnings.length
       ? `结果已回填；请继续人工复核 ${pending.warnings.length} 条指标口径提醒。版本状态不会被解释为因果结论。`
       : "结果已回填；版本状态已按最低消耗、目标 ROI 和父版本对照重新计算。" });
@@ -678,8 +1251,26 @@ function focusWorkflowTarget(viewId, elementId) {
   }
 }
 
+function runDirectorDeskAction(item) {
+  if (!item?.route) return false;
+  if (item.route.type === "workflow") {
+    focusWorkflowTarget(item.route.targetView, item.route.focusId);
+    return true;
+  }
+  if (item.route.type === "experiment") return runExperimentAction(item.route.next);
+  if (item.route.type === "content-diff") {
+    switchView("next", { scrollTop: false });
+    $("#experiment-loop").open = true;
+    resetExperimentBrowse("all");
+    $("#version-search").value = item.route.testId;
+    renderExperimentLoop();
+    return focusExperimentVersion(item.route.testId, { openContentDiff: true });
+  }
+  return false;
+}
+
 function renderRecentTask() {
-  const model = buildRecentWorkModel({
+  const recentWork = buildRecentWorkModel({
     hasCreativeTask: creativeTaskHasContent(state.creativeTask),
     hasAnalysis: Boolean(state.analysis?.topCreatives?.length),
     analysisCount: state.analysis?.summary?.creativeCount,
@@ -688,15 +1279,39 @@ function renderRecentTask() {
     planStale: state.planStale,
     planExported: state.planExported
   });
+  const model = buildDirectorDesk({ recentWork, timeline: currentExperimentTimeline() });
+  state.directorDesk = model;
+  const primary = model.items[0];
   const card = $("#recent-task");
-  card.dataset.state = model.kind;
-  setNodeText("#recent-task-title", model.title);
-  setNodeText("#recent-task-description", model.description);
+  card.dataset.state = primary.kind;
+  card.dataset.actionCount = String(model.totalActionCount);
+  setNodeText("#recent-task-title", primary.title);
+  setNodeText("#recent-task-description", primary.description);
   const action = $("#continue-recent-task");
-  action.textContent = model.action;
-  action.dataset.targetView = model.targetView;
-  action.dataset.focusId = model.focusId;
+  action.textContent = primary.action;
+  action.dataset.directorActionId = primary.id;
   action.disabled = false;
+  const list = $("#director-desk-list");
+  list.replaceChildren();
+  const kindLabels = { workflow: "核心流程", experiment: "实验待办", "content-risk": "内容核对" };
+  for (const item of model.items.slice(1)) {
+    const row = element("article", "director-desk-item");
+    const copy = element("div", "director-desk-item-copy");
+    copy.append(
+      element("span", "", kindLabels[item.kind] || "优先动作"),
+      element("strong", "", item.title),
+      element("small", "", item.description)
+    );
+    const button = element("button", "secondary", item.action);
+    button.type = "button";
+    button.dataset.directorActionId = item.id;
+    button.setAttribute("aria-label", `${item.title}：${item.action}`);
+    button.addEventListener("click", () => runDirectorDeskAction(item));
+    row.append(copy, button);
+    list.append(row);
+  }
+  list.hidden = model.items.length < 2;
+  setNodeText("#director-desk-summary", model.summary);
 }
 
 function updateWorkflowGuide() {
@@ -741,7 +1356,8 @@ $("#workflow-next-action").addEventListener("click", (event) => {
 
 $("#continue-recent-task").addEventListener("click", (event) => {
   const button = event.currentTarget;
-  focusWorkflowTarget(button.dataset.targetView, button.dataset.focusId);
+  const item = state.directorDesk?.items.find((candidate) => candidate.id === button.dataset.directorActionId);
+  runDirectorDeskAction(item);
 });
 
 $("#retry-workspace-load").addEventListener("click", () => window.location.reload());

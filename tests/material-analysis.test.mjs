@@ -138,6 +138,10 @@ test("cleans local subtitle timing and analyzes the copy structure deterministic
   assert.equal(result.coverage.pain.present, true);
   assert.equal(result.coverage.evidence.present, true);
   assert.equal(result.coverage.cta.present, true);
+  assert.equal(result.transcript.schemaVersion, 2);
+  assert.equal(result.transcript.sourceType, "manual");
+  assert.equal(result.transcript.format, "text");
+  assert.match(result.transcript.fingerprint, /^fnv1a32:/u);
 });
 
 test("retains cue timing in analysis segments and invalidates edited transcript mappings", () => {
@@ -159,5 +163,8 @@ test("retains cue timing in analysis segments and invalidates edited transcript 
     start: "00:00:00.000",
     end: "00:00:02.000"
   });
+  assert.equal(result.transcript.sourceType, "srt");
+  assert.equal(result.transcript.durationMs, 5000);
+  assert.equal(result.transcript.fingerprint, document.source.fingerprint);
   assert.throws(() => analyzeTranscriptStructure("编辑后的正文", { transcriptDocument: document }), /旧时间码.*已失效/u);
 });

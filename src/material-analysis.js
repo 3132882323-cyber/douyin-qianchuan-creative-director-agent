@@ -187,15 +187,18 @@ export function createLocalTranscriptionPlan(processingManifest, rawConfig = {},
   return plan;
 }
 
-export function transcriptTextFromDocument(rawText) {
+function inferredTranscriptName(rawText) {
   const raw = String(rawText ?? "");
   const trimmed = raw.replace(/^\uFEFF/u, "").trimStart();
-  const name = /^WEBVTT(?:\s|$)/iu.test(trimmed)
+  return /^WEBVTT(?:\s|$)/iu.test(trimmed)
     ? "legacy.vtt"
     : /^\s*(?:\d+\s*\n)?\d{1,2}:\d{2}:\d{2},\d{3}\s+-->/u.test(trimmed)
       ? "legacy.srt"
       : "legacy.txt";
-  return parseTranscriptDocument(raw, { name }).text;
+}
+
+export function transcriptTextFromDocument(rawText) {
+  return parseTranscriptDocument(rawText, { name: inferredTranscriptName(rawText) }).text;
 }
 
 function splitTranscriptContent(text) {
@@ -209,16 +212,16 @@ function splitTranscript(text, transcriptDocument = null) {
   let fragments;
   if (transcriptDocument) {
     const document = assertTranscriptDocumentMatchesText(transcriptDocument, text);
-    fragments = document.cues.flatMap((cue) => splitTranscriptContent(cue.content).map((content) => ({
+    fragments = document.segments.flatMap((segment) => splitTranscriptContent(segment.text).map((content) => ({
       content,
       source: {
-        kind: cue.startMs === null ? "paragraph" : "cue",
-        cueIndex: cue.index,
-        label: cue.label,
-        startMs: cue.startMs,
-        endMs: cue.endMs,
-        start: cue.start,
-        end: cue.end
+        kind: segment.startMs === null ? "paragraph" : "cue",
+        cueIndex: segment.index,
+        label: segment.label,
+        startMs: segment.startMs,
+        endMs: segment.endMs,
+        start: segment.start,
+        end: segment.end
       }
     })));
   } else {
@@ -253,8 +256,16 @@ function tagsForSegment(text, index) {
 }
 
 export function analyzeTranscriptStructure(rawText, options = {}) {
-  const text = transcriptTextFromDocument(rawText);
-  const fragments = splitTranscript(text, options.transcriptDocument || null);
+  const inferredName = inferredTranscriptName(rawText);
+  const document = options.transcriptDocument
+    ? assertTranscriptDocumentMatchesText(options.transcriptDocument, rawText)
+    : parseTranscriptDocument(rawText, {
+      name: inferredName,
+      sourceType: options.sourceType || (inferredName.endsWith(".txt") ? "manual" : undefined),
+      language: options.language
+    });
+  const text = document.text;
+  const fragments = splitTranscript(text, document);
   const segments = fragments.map(({ content, source }, index) => ({
     index: index + 1,
     content,
@@ -281,6 +292,17 @@ export function analyzeTranscriptStructure(rawText, options = {}) {
     generatedAt: options.generatedAt || new Date().toISOString(),
     sourceName: cleanText(options.sourceName || "本地转写文本", "来源名称", { maxLength: 260 }),
     method: "local_deterministic_rules",
+    transcript: {
+      schemaVersion: document.schemaVersion,
+      parserVersion: document.parserVersion,
+      sourceType: document.source.type,
+      format: document.source.format,
+      language: document.language,
+      durationMs: document.durationMs,
+      segmentCount: document.segments.length,
+      fingerprint: document.source.fingerprint,
+      warnings: structuredClone(document.warnings)
+    },
     summary: {
       characters: text.length,
       segments: segments.length,

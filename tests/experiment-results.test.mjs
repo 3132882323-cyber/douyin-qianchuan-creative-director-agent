@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseExperimentResults } from "../src/experiment-results.js";
+import { parseExperimentResults, parseManualExperimentResult } from "../src/experiment-results.js";
 
 test("matches result rows only by known test id and normalizes optional metrics", () => {
   const parsed = parseExperimentResults(`测试编号,消耗,成交金额,CTR,完播率\nTEST-1,"1,000",1800,3.5%,25%\nUNKNOWN,200,100,2%,10%`, ["TEST-1"]);
@@ -28,4 +28,32 @@ test("rejects impossible funnels and surfaces material metric-definition differe
   assert.deepEqual(parsed.warnings.map((entry) => entry.field), ["roi", "ctr"]);
   assert.deepEqual(parsed.matched[0].qualityWarnings, ["roi_mismatch", "ctr_mismatch"]);
   assert.match(parsed.notice, /人工核对/u);
+});
+
+test("validates a single manual result with the same rate and quality rules", () => {
+  const parsed = parseManualExperimentResult({
+    testId: "TEST-1",
+    spend: "400",
+    gmv: "720",
+    roi: "1.8",
+    impressions: "10000",
+    clicks: "400",
+    conversions: "20",
+    ctr: "4%",
+    cvr: "5%",
+    threeSecondRate: "32.5%",
+    completionRate: "0.18"
+  }, ["TEST-1"]);
+  assert.equal(parsed.inputMode, "manual");
+  assert.equal(parsed.matched[0].metrics.ctr, 0.04);
+  assert.equal(parsed.matched[0].metrics.completionRate, 0.18);
+  assert.deepEqual(parsed.matched[0].qualityWarnings, []);
+  assert.match(parsed.notice, /当前项目/u);
+});
+
+test("manual result fails closed before it can replace a stored result", () => {
+  assert.throws(() => parseManualExperimentResult({ testId: "UNKNOWN", spend: "100" }, ["TEST-1"]), /不属于当前项目/u);
+  assert.throws(() => parseManualExperimentResult({ testId: "TEST-1", spend: "" }, ["TEST-1"]), /缺少消耗/u);
+  assert.throws(() => parseManualExperimentResult({ testId: "TEST-1", spend: "100", impressions: "10", clicks: "11" }, ["TEST-1"]), /点击量不能大于展示量/u);
+  assert.throws(() => parseManualExperimentResult({ testId: "TEST-1", spend: "100", unexpected: "drop" }, ["TEST-1"]), /未知字段/u);
 });

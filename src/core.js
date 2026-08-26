@@ -494,7 +494,7 @@ export function generateCreativePlan(inputTask, analysis, options = {}) {
   });
   return {
     generatedAt: generatedAt.toISOString(),
-    version: "1.2.0",
+    version: "1.3.0",
     batchId,
     dependencyFingerprint: creativePlanDependencyFingerprint(creativeTask, analysis, { testVariable: variable, minSpend }),
     creativeTask,

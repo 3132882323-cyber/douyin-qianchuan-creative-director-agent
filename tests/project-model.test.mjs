@@ -5,9 +5,11 @@ import {
   createProjectRecord,
   createResultRecord,
   sanitizeProjectWorkspace,
+  sanitizeVersionRecord,
   validateProjectPortfolio,
   versionRecordsFromPlan
 } from "../src/project-model.js";
+import { createExperimentDecision } from "../src/experiment-decision.js";
 
 const projectId = "prj_12345678";
 
@@ -42,7 +44,7 @@ function item(id, variant = "直接提出问题") {
 function plan(batchId, generatedAt, suffix = "B00") {
   return {
     generatedAt,
-    version: "1.2.0",
+    version: "1.3.0",
     batchId,
     creativeTask: {},
     sourceSummary: { targetRoi: 1.5 },
@@ -82,6 +84,18 @@ test("keeps explicit parent lineage and evaluates only backfilled descriptive re
   const child = timeline.find((entry) => entry.version.testId === second.testId);
   assert.equal(child.result.metrics.roi, 1.6);
   assert.equal(child.evaluation.code, "target_met");
+
+  const decision = createExperimentDecision({ outcome: "keep", primaryMetric: "roi", guardrailMetrics: ["ctr"], reason: "达到最低消耗和目标 ROI，暂时保留此版本。" }, {
+    version: second,
+    result: child.result,
+    evaluation: child.evaluation,
+    targetRoi: 1.5
+  }, { decidedAt: "2026-08-25T03:00:00.000Z" });
+  const decidedSecond = sanitizeVersionRecord({ ...second, decision });
+  const [resynced] = versionRecordsFromPlan({ projectId, plan: secondPlan, existingVersions: [first, decidedSecond], parentVersionId: first.testId, now: "2026-08-25T04:00:00.000Z" });
+  assert.equal(resynced.decision.outcome, "keep");
+  const changedResult = createResultRecord({ projectId, testId: second.testId, importedAt: "2026-08-26T01:00:00.000Z", metrics: { spend: 500, roi: 1.2 } });
+  assert.equal(buildVersionTimeline([first, resynced], [results[0], changedResult], 1.5).find((entry) => entry.version.testId === second.testId).decisionState.code, "stale");
 
   const insufficient = buildVersionTimeline([second], [createResultRecord({ projectId, testId: second.testId, importedAt: "2026-08-25T02:00:00.000Z", metrics: { spend: 20, roi: 5 } })], 1.5)[0];
   assert.equal(insufficient.evaluation.code, "insufficient");

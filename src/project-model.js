@@ -1,4 +1,5 @@
 import { normalizeCreativeTask } from "./core.js";
+import { assessExperimentDecision, sanitizeExperimentDecision } from "./experiment-decision.js";
 import { EXPERIMENT_QUALITY_WARNING_LABELS } from "./experiment-results.js";
 import { sanitizedAnalysis, sanitizedCreativePlan, sanitizedTargetRoi } from "./update.js";
 
@@ -117,7 +118,7 @@ export function sanitizeProjectRecord(value) {
 function sanitizedPlanItem(value) {
   const plan = sanitizedCreativePlan({
     generatedAt: new Date(0).toISOString(),
-    version: "1.2.0",
+    version: "1.3.0",
     creativeTask: {},
     sourceSummary: {},
     testVariable: "hook",
@@ -151,7 +152,8 @@ export function sanitizeVersionRecord(value) {
     primaryVariable: String(value.primaryVariable || planItem.singleVariable).slice(0, 80),
     baselineCreative: String(value.baselineCreative || planItem.baselineCreative).slice(0, 500),
     minSpend: boundedNumber(value.minSpend ?? planItem.minSpend, "最低测试消耗", { min: 0, max: 1e9, nullable: false }),
-    planItem
+    planItem,
+    decision: sanitizeExperimentDecision(value.decision)
   };
 }
 
@@ -186,7 +188,8 @@ export function versionRecordsFromPlan({ projectId, plan, parentVersionId, exist
       primaryVariable: item.singleVariable,
       baselineCreative: item.baselineCreative,
       minSpend: item.minSpend,
-      planItem: item
+      planItem: item,
+      decision: previous?.decision || null
     });
   });
 }
@@ -261,7 +264,13 @@ export function buildVersionTimeline(versions = [], results = [], targetRoi = 1.
       const candidateParentResult = parentId ? resultMap.get(parentId) || null : null;
       const parentVersion = parentId ? versionMap.get(parentId) || null : null;
       const parentResult = candidateParentResult && parentVersion && candidateParentResult.metrics.spend >= parentVersion.minSpend ? candidateParentResult : null;
-      return { version, result, evaluation: evaluateExperimentResult(version, result, parentResult, targetRoi) };
+      const evaluation = evaluateExperimentResult(version, result, parentResult, targetRoi);
+      return {
+        version,
+        result,
+        evaluation,
+        decisionState: assessExperimentDecision(version.decision, { version, result, evaluation, targetRoi: sanitizedTargetRoi(targetRoi) })
+      };
     });
 }
 

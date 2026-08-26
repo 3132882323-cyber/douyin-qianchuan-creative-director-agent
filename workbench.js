@@ -71,6 +71,40 @@ function setFlowFeedback({ status = "", error = "" } = {}) {
   setFeedback("#workbench-flow-message", "#workbench-flow-error", { status, error });
 }
 
+function transcriptDurationLabel(milliseconds) {
+  if (!Number.isInteger(milliseconds)) return "无时间轴";
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours ? `${hours} 小时 ` : ""}${minutes} 分 ${seconds} 秒`;
+}
+
+function renderTranscriptMetadata(value) {
+  const panel = $("#transcript-metadata");
+  if (!value) {
+    panel.hidden = true;
+    return;
+  }
+  const metadata = value.transcript || {
+    parserVersion: value.parserVersion,
+    sourceType: value.source?.type,
+    format: value.source?.format,
+    durationMs: value.durationMs,
+    segmentCount: value.segments?.length,
+    fingerprint: value.source?.fingerprint,
+    warnings: value.warnings
+  };
+  const sourceLabels = { manual: "手动粘贴", txt: "TXT", md: "Markdown", srt: "SRT 字幕", vtt: "VTT 字幕", whisper_result: "本机 whisper.cpp 结果" };
+  setNodeText("#transcript-source-type", sourceLabels[metadata.sourceType] || metadata.sourceType || "未知");
+  setNodeText("#transcript-format-segments", `${String(metadata.format || "text").toUpperCase()} · ${Number(metadata.segmentCount || 0)} 段`);
+  setNodeText("#transcript-duration", transcriptDurationLabel(metadata.durationMs));
+  setNodeText("#transcript-parser-version", `Transcript v2 / parser ${metadata.parserVersion || "—"}`);
+  setNodeText("#transcript-fingerprint", metadata.fingerprint || "—");
+  setNodeText("#transcript-warning-summary", metadata.warnings?.length ? metadata.warnings.map((item) => item.message).join("；") : "无");
+  panel.hidden = false;
+}
+
 function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -325,6 +359,7 @@ function resetWorkbenchSession() {
   $("#whisper-executable").value = "";
   $("#whisper-model").value = "";
   $("#transcript-text").value = "";
+  renderTranscriptMetadata(null);
   $("#revision-parent-version").value = "";
 
   $("#processing-queue").hidden = true;
@@ -904,10 +939,12 @@ $("#transcript-file").addEventListener("change", async (event) => {
     state.transcriptSourceName = file.name;
     state.transcriptDocument = transcriptDocument;
     state.timingInvalidated = false;
+    renderTranscriptMetadata(transcriptDocument);
     setStatus("#transcript-status", `${text.length.toLocaleString("zh-CN")} 字符`, true);
     invalidateTranscriptAnalysis();
-    const mapping = transcriptDocument.hasTiming ? `${transcriptDocument.cues.length} 个时间段已保留` : `${transcriptDocument.cues.length} 个文本段落已建立`;
-    setFeedback("#transcription-message", "#transcription-error", { status: `文本已在本地读取；${mapping}，分析时会显示来源。` });
+    const mapping = transcriptDocument.hasTiming ? `${transcriptDocument.segments.length} 个时间段已保留` : `${transcriptDocument.segments.length} 个文本段落已建立`;
+    const warning = transcriptDocument.warnings.length ? `；${transcriptDocument.warnings.map((item) => item.message).join("；")}` : "";
+    setFeedback("#transcription-message", "#transcription-error", { status: `文本已在本地读取；${mapping}，分析时会显示来源${warning}。` });
     setFlowFeedback({ status: "转写文本已在本地读取；下一步分析文案结构。" });
     updateWorkbenchOverview();
   } catch (error) {
@@ -926,8 +963,10 @@ $("#transcript-text").addEventListener("input", (event) => {
   if (state.transcriptDocument && !transcriptDocumentMatchesText(state.transcriptDocument, event.target.value)) {
     state.transcriptDocument = null;
     state.timingInvalidated = true;
+    renderTranscriptMetadata(null);
     timingMessage = "正文已手动编辑，旧时间码或段落映射已失效；当前分析将按新文本段落重新建立来源。";
   }
+  if (!state.transcriptDocument) renderTranscriptMetadata(null);
   state.transcriptSourceName = "手动粘贴文本";
   setStatus("#transcript-status", length ? `${length.toLocaleString("zh-CN")} 字符` : "等待文本", length > 0);
   invalidateTranscriptAnalysis(timingMessage || "转写正文已改变，旧结构分析与可拍草稿已失效。");
@@ -936,6 +975,7 @@ $("#transcript-text").addEventListener("input", (event) => {
 });
 
 function renderStructureAnalysis(result) {
+  renderTranscriptMetadata(result);
   $("#structure-score").textContent = `${result.summary.structureCoveragePercent}%`;
   $("#structure-summary").textContent = `${result.summary.segments} 个片段 · ${result.summary.characters.toLocaleString("zh-CN")} 字符`;
   const coverageGrid = $("#coverage-grid");

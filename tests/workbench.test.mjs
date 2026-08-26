@@ -9,10 +9,10 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.2.0 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.3.0 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.2\.0/);
+  assert.match(html, /V1\.3\.0/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
@@ -149,6 +149,12 @@ test("connects timed-source analysis to a single-variable editable revision draf
   assert.match(html, /生成逻辑是本地确定性模板，不预测投放效果/u);
   assert.match(script, /parseTranscriptDocument\(await file\.text\(\), \{ name: file\.name \}\)/u);
   assert.match(script, /transcriptDocumentMatchesText\(state\.transcriptDocument, event\.target\.value\)/u);
+  for (const id of ["transcript-metadata", "transcript-source-type", "transcript-format-segments", "transcript-duration", "transcript-parser-version", "transcript-fingerprint", "transcript-warning-summary"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(script, /renderTranscriptMetadata\(transcriptDocument\)/u);
+  assert.match(script, /Transcript v2 \/ parser/u);
+  assert.match(css, /\.transcript-metadata/u);
   assert.match(script, /旧时间码或段落映射已失效/u);
   assert.match(script, /revisionRecommendationsForAnalysis\(result\)/u);
   assert.match(script, /createCreativeRevisionDraft\(state\.analysis/u);

@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.2.0");
+  assert.equal(manifest.version, "1.3.0");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -67,19 +67,52 @@ test("keeps narrow side panels and programmatic focus usable", () => {
 });
 
 test("wires multi-project switching, version lineage and explicit result backfill", () => {
-  for (const id of ["project-hub", "project-select", "new-project", "rename-project", "parent-version", "experiment-loop", "version-filter", "experiment-summary", "version-timeline", "export-experiment-csv", "export-experiment-json", "experiment-result-file", "experiment-result-preview", "confirm-result-import", "cancel-result-import"]) {
+  for (const id of ["project-hub", "project-select", "new-project", "rename-project", "parent-version", "parent-version-recommendation", "parent-version-recommendation-title", "use-recommended-parent", "experiment-loop", "version-filter", "version-batch-filter", "version-search", "version-view-summary", "version-pagination", "version-page-prev", "version-page-state", "version-page-next", "experiment-summary", "experiment-next-action", "run-experiment-next-action", "version-timeline", "manual-result-entry", "manual-result-form", "manual-result-test-id", "manual-result-spend", "manual-result-roi", "preview-manual-result", "export-experiment-csv", "export-experiment-json", "experiment-result-file", "experiment-result-preview", "confirm-result-import", "cancel-result-import"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(script, /openProjectDatabase/u);
   assert.match(script, /requestSwitch\(targetId\)/u);
   assert.match(script, /parseExperimentResults/u);
+  assert.match(script, /parseManualExperimentResult/u);
+  assert.match(script, /buildExperimentNextAction/u);
+  assert.match(script, /buildExperimentVersionActions/u);
+  assert.match(script, /recommendExperimentParent/u);
+  assert.match(script, /selectParentVersion/u);
+  assert.match(script, /openManualResultForVersion/u);
   assert.match(script, /buildExperimentLedgerSnapshot/u);
   assert.match(script, /experimentLedgerToCsv/u);
-  assert.match(script, /filterExperimentTimeline/u);
+  assert.match(script, /buildExperimentView/u);
+  assert.match(script, /buildExperimentParentComparison/u);
+  assert.match(script, /buildCreativeVersionDiff/u);
+  assert.match(script, /experimentBatchOptions/u);
+  assert.match(script, /state\.experimentViewPage/u);
+  assert.match(script, /resetExperimentBrowse\(next\.filter\)/u);
+  assert.doesNotMatch(script, /filteredTimeline\.slice\(0, 100\)/u);
+  assert.match(script, /createExperimentDecision/u);
+  assert.match(script, /setVersionDecision/u);
+  assert.match(script, /后续证据变化时会自动提示重新确认/u);
   assert.match(script, /指标口径提醒/u);
   assert.match(script, /未匹配行不会写入/u);
+  assert.match(html, /已有结果会先载入/u);
   assert.match(html, /不把单变量与结果差异自动认定为因果/u);
   assert.match(html, /只按测试编号关联/u);
+  assert.match(html, /value="decision_stale"/u);
+  assert.match(html, /旧决策会自动标记为“需重新确认”/u);
+  assert.match(html, /只参考你已确认且证据仍有效的人工结论/u);
+  assert.match(css, /\.version-decision/u);
+  assert.match(css, /\.decision-form/u);
+  assert.match(css, /\.experiment-next-action/u);
+  assert.match(css, /\.manual-result-form/u);
+  assert.match(css, /\.parent-version-recommendation/u);
+  assert.match(css, /\.decision-parent-action/u);
+  assert.match(css, /\.experiment-browse/u);
+  assert.match(css, /\.experiment-pagination/u);
+  assert.match(css, /\.version-quick-actions/u);
+  assert.match(css, /\.version-comparison/u);
+  assert.match(css, /\.comparison-metrics/u);
+  assert.match(css, /\.version-content-diff/u);
+  assert.match(css, /\.content-diff-values/u);
+  assert.match(script, /预览并再次确认前不会写入/u);
 });
 
 test("uses a readable black-and-white paper layout without changing workspace ids", () => {
@@ -244,17 +277,22 @@ test("keeps one primary workbench entry above navigation and only a contextual l
   assert.match(html, /先导入历史素材/u);
 });
 
-test("wires a reliable recent-task continuation without adding storage keys", () => {
-  for (const id of ["recent-task", "recent-task-title", "recent-task-description", "continue-recent-task"]) {
+test("wires a prioritized director desk without adding storage keys or automatic actions", () => {
+  for (const id of ["recent-task", "recent-task-title", "recent-task-description", "continue-recent-task", "director-desk-list", "director-desk-summary"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /id="continue-recent-task"[^>]*aria-describedby="recent-task-description"[^>]*disabled/u);
   assert.match(script, /buildRecentWorkModel/u);
+  assert.match(script, /buildDirectorDesk/u);
   assert.match(script, /function renderRecentTask\(\)/u);
   assert.match(script, /#continue-recent-task"\)\.addEventListener\("click"/u);
-  assert.match(script, /focusWorkflowTarget\(button\.dataset\.targetView, button\.dataset\.focusId\)/u);
+  assert.match(script, /function runDirectorDeskAction\(item\)/u);
+  assert.match(script, /runDirectorDeskAction\(item\)/u);
+  assert.match(script, /openContentDiff: true/u);
+  assert.match(css, /\.director-desk-list/u);
+  assert.match(css, /\.director-desk-item/u);
   const storageKeys = script.match(/const STORAGE_KEYS = \[([^\]]+)\]/u)?.[1] || "";
-  assert.doesNotMatch(storageKeys, /recent|workbench/iu);
+  assert.doesNotMatch(storageKeys, /recent|workbench|director|desk/iu);
   assert.match(css, /@media\s*\(max-width:\s*400px\)[\s\S]*\.top-launcher\s*\{\s*padding:\s*9px/iu);
   assert.match(css, /@media\s*\(max-width:\s*400px\)[\s\S]*\.recent-task \.secondary\s*\{[^}]*max-width:\s*110px/iu);
 });
