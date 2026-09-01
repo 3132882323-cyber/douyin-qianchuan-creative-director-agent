@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildExperimentNextAction, buildExperimentVersionActions, recommendExperimentParent } from "../src/experiment-actions.js";
+import {
+  buildExperimentNextAction,
+  buildExperimentVersionActions,
+  experimentCardActiveLayer,
+  recommendExperimentParent
+} from "../src/experiment-actions.js";
 
 function entry(testId, evaluationCode, options = {}) {
   return {
@@ -105,4 +110,32 @@ test("only exposes the parent shortcut for a current keep or continue decision",
   const stopped = entry("STOP", "target_met", { decision: { outcome: "stop" }, decisionState: { code: "current" } });
   assert.equal(buildExperimentVersionActions(stopped).parent, null);
   assert.throws(() => buildExperimentVersionActions({}), /测试编号/u);
+});
+
+test("opens only the version-card layer that matches the next human task", () => {
+  assert.equal(experimentCardActiveLayer(entry("UNTRACKED", "pending")), "production");
+  assert.equal(experimentCardActiveLayer(entry("LAUNCHED", "pending", {
+    productionStatus: { stage: "launched", updatedAt: "2026-08-31T01:00:00.000Z" }
+  })), "result");
+  assert.equal(experimentCardActiveLayer(entry("READY", "target_met")), "decision");
+  assert.equal(experimentCardActiveLayer(entry("STALE", "target_met", {
+    decision: { outcome: "keep" },
+    decisionState: { code: "stale" }
+  })), "decision");
+  assert.equal(experimentCardActiveLayer(entry("WARNING", "target_met", {
+    result: { metrics: { spend: 400 }, qualityWarnings: ["roi_mismatch"] }
+  })), "result");
+  assert.equal(experimentCardActiveLayer(entry("LOW", "insufficient")), "result");
+  assert.equal(experimentCardActiveLayer(entry("PAUSED", "pending", {
+    productionStatus: { stage: "paused", updatedAt: "2026-08-31T01:00:00.000Z" }
+  })), "summary");
+  assert.equal(experimentCardActiveLayer(entry("DONE", "target_met", {
+    decision: { outcome: "stop" },
+    decisionState: { code: "current" }
+  })), "summary");
+  assert.equal(experimentCardActiveLayer(entry("ACKNOWLEDGED", "pending", {
+    decision: { outcome: "continue" },
+    decisionState: { code: "current" }
+  })), "summary");
+  assert.throws(() => experimentCardActiveLayer({}), /测试编号/u);
 });

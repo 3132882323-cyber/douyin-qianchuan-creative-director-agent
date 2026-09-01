@@ -534,6 +534,105 @@ export function planToMarkdown(plan) {
   return lines.join("\n");
 }
 
+function runSheetText(value, fallback = "待补充") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+const SHOOT_READINESS_FIELDS = Object.freeze([
+  { path: "hook", label: "前三秒钩子" },
+  { path: "audience", label: "目标受众" },
+  { path: "scene", label: "拍摄场景" },
+  { path: "production.spokenScript", label: "口播稿" },
+  { path: "production.storyboard", label: "分镜" },
+  { path: "production.shootingTask", label: "现场任务" },
+  { path: "production.editingNotes", label: "剪辑要求" },
+  { path: "production.subtitleHighlights", label: "字幕重点" },
+  { path: "production.complianceChecklist", label: "发布前检查" }
+]);
+
+function nestedValue(source, path) {
+  return path.split(".").reduce((value, key) => value?.[key], source);
+}
+
+function shootFieldReady(value) {
+  const text = String(value ?? "").trim();
+  return Boolean(text && !/(?:待确认|待补充|未填写|请编导补充)/u.test(text));
+}
+
+export function assessPlanShootReadiness(plan) {
+  if (!plan || !Array.isArray(plan.items) || !plan.items.length) throw new Error("开拍准备检查缺少可执行任务");
+  const items = plan.items.map((item, index) => {
+    const missing = SHOOT_READINESS_FIELDS
+      .filter((definition) => !shootFieldReady(nestedValue(item, definition.path)))
+      .map((definition) => definition.label);
+    return {
+      index,
+      id: runSheetText(item?.id, `任务 ${index + 1}`),
+      ready: missing.length === 0,
+      missing
+    };
+  });
+  const readyCount = items.filter((item) => item.ready).length;
+  return {
+    ready: readyCount === items.length,
+    readyCount,
+    total: items.length,
+    missingCount: items.reduce((total, item) => total + item.missing.length, 0),
+    items
+  };
+}
+
+export function planToRunSheet(plan, { itemIndex } = {}) {
+  if (!plan || !Array.isArray(plan.items) || !plan.items.length) throw new Error("开拍清单缺少可执行任务");
+  if (itemIndex !== undefined && (!Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= plan.items.length)) {
+    throw new Error("开拍清单任务序号无效");
+  }
+  const indexedItems = plan.items.map((item, index) => ({ item, index }));
+  const selected = itemIndex === undefined ? indexedItems : [indexedItems[itemIndex]];
+  const lines = [
+    itemIndex === undefined ? "# 千川现场开拍清单" : "# 千川单条开拍单",
+    "",
+    `- 测试批次：${runSheetText(plan.batchId, "未记录")}`,
+    `- 共 ${plan.items.length} 条：先拍基线，再按编号拍变体。`,
+    "- 现场原则：每条只替换本轮唯一变量；其余机位、演员、光线、证据、时长和行动引导按方案保持一致。",
+    ""
+  ];
+  for (const { item, index } of selected) {
+    const production = item?.production || {};
+    const orderLabel = index === 0 ? "先拍基线" : `第 ${index + 1} 条变体`;
+    lines.push(
+      `## ${String(index + 1).padStart(2, "0")} · ${runSheetText(item?.id, "未编号")} · ${runSheetText(item?.type, "任务")}`,
+      "",
+      `- 拍摄顺序：${orderLabel}`,
+      `- 本条只改：${runSheetText(item?.singleVariable)} → ${runSheetText(item?.variant)}`,
+      `- 前三秒：${runSheetText(item?.hook)}`,
+      `- 受众：${runSheetText(item?.audience)}`,
+      `- 场景：${runSheetText(item?.scene)}`,
+      `- 其余保持：${runSheetText(item?.fixedElements)}`,
+      "",
+      "### 现场必拍",
+      "",
+      runSheetText(production.shootingTask),
+      "",
+      "### 剪辑交付",
+      "",
+      runSheetText(production.editingNotes),
+      "",
+      "### 字幕重点",
+      "",
+      runSheetText(production.subtitleHighlights),
+      "",
+      "### 发布前检查",
+      "",
+      runSheetText(production.complianceChecklist),
+      ""
+    );
+  }
+  lines.push("> 本清单只重排已生成并可编辑的本地方案，不新增效果判断；事实、授权、证据和发布表达仍需编导人工核对。");
+  return lines.join("\n");
+}
+
 function csvCell(value) {
   const text = spreadsheetSafeText(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

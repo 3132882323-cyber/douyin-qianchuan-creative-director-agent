@@ -65,7 +65,7 @@ test("uses a white paper workspace with one black primary action", () => {
 });
 
 test("connects one primary flow action to real state-aware operations", () => {
-  for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-flow-state", "workbench-next-step", "workbench-next-hint", "workbench-progress", "workbench-progress-label", "workbench-progress-bar", "workbench-flow-message", "workbench-flow-error", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
+  for (const id of ["task-overview-title", "workbench-overview-summary", "workbench-flow-state", "workbench-next-step", "workbench-next-hint", "workbench-progress", "workbench-progress-label", "workbench-progress-bar", "workbench-delivery-state", "workbench-delivery-label", "workbench-delivery-detail", "workbench-flow-message", "workbench-flow-error", "overview-source-state", "overview-processing-state", "overview-transcription-state", "overview-structure-state"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.equal((html.match(/id="workbench-next-step"/gu) || []).length, 1);
@@ -80,9 +80,15 @@ test("connects one primary flow action to real state-aware operations", () => {
   assert.match(script, /block: focusTarget \? "center" : "start"/u);
   assert.match(script, /processingPrepared/u);
   assert.match(script, /handoffState/u);
+  assert.match(script, /deliveryNode\.dataset\.tone = model\.delivery\.tone/u);
+  assert.match(script, /#workbench-delivery-label", model\.delivery\.label/u);
+  assert.match(script, /#workbench-delivery-detail", model\.delivery\.detail/u);
+  assert.match(script, /transcriptRecoverable/u);
   assert.match(script, /chrome\.storage\?\.onChanged\?\.addListener/u);
   assert.match(script, /ANALYSIS_HANDOFF_INBOX_KEY/u);
   assert.doesNotMatch(script, /preventScroll/u);
+  assert.match(css, /\.delivery-state\[data-tone="attention"\]/u);
+  assert.match(css, /\.delivery-state\[data-tone="success"\]/u);
 });
 
 test("lets users choose video or existing-transcript entry without persisting the choice", () => {
@@ -123,6 +129,7 @@ test("resets only the current page session after an explicit second confirmation
   assert.match(html, /id="reset-workbench-session"[^>]*class="overview-reset-action"/u);
   assert.match(html, /id="reset-workbench-session"[^>]*aria-describedby="workbench-overview-summary workbench-reset-note"/u);
   assert.match(html, /不删除本地原文件、侧边栏或浏览器本地工作区/u);
+  assert.match(html, /刷新与关闭会触发浏览器提醒/u);
   assert.match(css, /\.overview-reset-action\s*\{[^}]*background:\s*transparent/iu);
 
   const resetStart = script.indexOf("function resetWorkbenchSession()");
@@ -148,15 +155,21 @@ test("resets only the current page session after an explicit second confirmation
   const resetHandler = script.slice(resetEnd, script.indexOf("document.querySelectorAll", resetEnd));
   assert.match(resetHandler, /buildWorkbenchResetPrompt\(workbenchResetSnapshot\(\)\)/u);
   assert.match(resetHandler, /if \(!window\.confirm\(resetPlan\.message\)\) return;\s*resetWorkbenchSession\(\)/u);
+  assert.match(script, /window\.addEventListener\("beforeunload", \(event\) => \{[\s\S]*hasWorkbenchUnloadRisk\(workbenchResetSnapshot\(\)\)[\s\S]*event\.preventDefault\(\)[\s\S]*event\.returnValue = ""/u);
+  assert.doesNotMatch(script, /beforeunload[\s\S]{0,300}chrome\.storage/iu);
 });
 
 test("keeps section controls available but visually reserves primary emphasis for the flow action", () => {
   for (const id of ["create-material-tasks", "export-material-manifest", "analyze-transcript", "send-analysis-handoff"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*class="secondary`, "u"));
   }
-  assert.match(html, /刷新或关闭页面后不会伪装成可恢复任务/u);
+  assert.match(html, /刷新与关闭会触发浏览器提醒，但不会伪装成可恢复任务/u);
   assert.match(css, /\.flow-state\[data-tone="attention"\]/u);
   assert.match(css, /\.overview-progress/u);
+  assert.match(html, /id="processing-method"[^>]*class="instructions material-output-settings processing-method"/u);
+  assert.doesNotMatch(html.match(/id="processing-method"[^>]*>/u)?.[0] || "", /\bopen\b/u);
+  assert.match(html, /本机处理会做什么/u);
+  assert.match(css, /\.processing-method\s*\{[^}]*margin-bottom/iu);
 });
 
 test("sends a confirmed V2 session handoff with an honest side-panel fallback and keeps JSON backup", () => {
@@ -232,6 +245,8 @@ test("loads only repository-local code", () => {
 test("treats a Douyin link only as a note or explicit original-page navigation", () => {
   assert.match(html, /可选，仅作来源备注/);
   assert.match(html, /不会发起解析请求，也不会下载链接中的媒体/);
+  assert.match(html, /id="open-source-note"[^>]*class="source-note-action"[^>]*>打开原页</u);
+  assert.match(css, /\.source-note-action\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*10px/iu);
   assert.match(script, /window\.open\(note\.url, "_blank", "noopener,noreferrer"\)/u);
   assert.doesNotMatch(script, /fetch\([^\n]*(?:douyin|source-note|note\.url)|XMLHttpRequest|chrome\.downloads|yt-dlp|douyin.*download/iu);
   const fetchCalls = [...script.matchAll(/\bfetch\(([^,\n]+)/gu)].map((match) => match[1].trim());

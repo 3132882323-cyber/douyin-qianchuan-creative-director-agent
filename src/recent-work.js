@@ -52,11 +52,11 @@ export function buildRecentWorkModel({
   if (plans && !planExported) {
     return {
       kind: "plan-ready",
-      title: "下一版任务待检查",
-      description: `当前工作区有 ${plans} 个可继续编辑、复制或导出的拍摄方案。`,
-      action: "继续检查任务",
+      title: "下一版开拍清单待检查",
+      description: `当前工作区有 ${plans} 个可继续编辑的拍摄方案；现场清单会按基线和变体顺序整理。`,
+      action: "查看开拍清单",
       targetView: "next",
-      focusId: "copy-plan"
+      focusId: "copy-run-sheet"
     };
   }
 

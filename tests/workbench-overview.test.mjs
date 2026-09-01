@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWorkbenchOverview, buildWorkbenchResetPrompt } from "../src/workbench-overview.js";
+import { buildWorkbenchOverview, buildWorkbenchResetPrompt, hasWorkbenchUnloadRisk } from "../src/workbench-overview.js";
 
 test("treats a fresh workbench as an honest no-op reset", () => {
   const reset = buildWorkbenchResetPrompt();
@@ -24,12 +24,22 @@ test("names unsaved page-only work without implying storage or file deletion", (
     hasSetupValues: true
   });
   assert.equal(reset.hasWork, true);
-  assert.deepEqual(reset.atRisk, ["尚未导出的处理任务", "尚未导出或成功发送的分析结果"]);
+  assert.deepEqual(reset.atRisk, ["尚未导出的处理任务", "仅存在本页的手动转写正文", "尚未导出或成功发送的分析结果"]);
   assert.match(reset.message, /无法从扩展恢复/u);
   assert.match(reset.message, /本地原文件/u);
   assert.match(reset.message, /chrome\.storage\.local 工作区/u);
   assert.match(reset.message, /已经发送到编导台会话收件箱的结果/u);
   assert.doesNotMatch(reset.message, /尚未导出的转写任务/u);
+});
+
+test("warns before unload only when page-only work would be lost", () => {
+  assert.equal(hasWorkbenchUnloadRisk(), false);
+  assert.equal(hasWorkbenchUnloadRisk({ transcriptLength: 800 }), true);
+  assert.equal(hasWorkbenchUnloadRisk({ transcriptLength: 800, transcriptRecoverable: true }), false);
+  assert.equal(hasWorkbenchUnloadRisk({ processingTaskCount: 2, processingExported: false }), true);
+  assert.equal(hasWorkbenchUnloadRisk({ processingTaskCount: 2, processingExported: true }), false);
+  assert.equal(hasWorkbenchUnloadRisk({ hasAnalysis: true, analysisPreserved: false }), true);
+  assert.equal(hasWorkbenchUnloadRisk({ hasAnalysis: true, analysisPreserved: true }), false);
 });
 
 test("starts without forcing every user into the video route", () => {
@@ -48,6 +58,60 @@ test("starts without forcing every user into the video route", () => {
   assert.equal(overview.current, null);
   assert.equal(overview.steps.source.status, "pending");
   assert.equal(overview.steps.processing.status, "pending");
+  assert.equal(overview.delivery.label, "尚无待交付成果");
+});
+
+test("reports where the latest useful outcome actually lives", () => {
+  const manualTranscript = buildWorkbenchOverview({ entryMode: "transcript", transcriptLength: 820 });
+  assert.equal(manualTranscript.delivery.tone, "attention");
+  assert.match(manualTranscript.delivery.label, /仅在本页/u);
+
+  const importedTranscript = buildWorkbenchOverview({
+    entryMode: "transcript",
+    transcriptLength: 820,
+    transcriptRecoverable: true
+  });
+  assert.equal(importedTranscript.delivery.tone, "neutral");
+  assert.match(importedTranscript.delivery.label, /重新导入/u);
+
+  const exportedAnalysis = buildWorkbenchOverview({
+    transcriptLength: 820,
+    transcriptRecoverable: true,
+    analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 },
+    analysisPreserved: true
+  });
+  assert.equal(exportedAnalysis.delivery.tone, "success");
+  assert.equal(exportedAnalysis.delivery.label, "结构分析已导出");
+
+  const confirmedDraft = buildWorkbenchOverview({
+    transcriptLength: 820,
+    analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 },
+    revisionDraft: { testId: "QC-LOCAL-1" },
+    revisionConfirmed: true
+  });
+  assert.equal(confirmedDraft.delivery.tone, "attention");
+  assert.match(confirmedDraft.delivery.label, /尚未交付/u);
+  assert.match(confirmedDraft.delivery.detail, /确认不等于发送/u);
+
+  const exportedUnconfirmedDraft = buildWorkbenchOverview({
+    transcriptLength: 820,
+    analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 },
+    revisionDraft: { testId: "QC-LOCAL-1" },
+    revisionPreserved: true
+  });
+  assert.equal(exportedUnconfirmedDraft.delivery.tone, "attention");
+  assert.match(exportedUnconfirmedDraft.delivery.label, /尚未确认/u);
+  assert.match(exportedUnconfirmedDraft.delivery.detail, /不代表编导审核完成/u);
+
+  const sent = buildWorkbenchOverview({
+    transcriptLength: 820,
+    analysis: { coveredStructures: 6, totalStructures: 7, structureCoveragePercent: 86 },
+    revisionDraft: { testId: "QC-LOCAL-1" },
+    revisionConfirmed: true,
+    handoffState: "sent"
+  });
+  assert.equal(sent.delivery.tone, "success");
+  assert.match(sent.delivery.label, /已发送到编导台/u);
 });
 
 test("offers video processing and existing-transcript routes through the same primary action", () => {

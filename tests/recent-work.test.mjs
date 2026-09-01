@@ -22,7 +22,9 @@ test("continues from the strongest reliable local director state", () => {
 
   const plan = buildRecentWorkModel({ analysisCount: 18, planCount: 3 });
   assert.equal(plan.kind, "plan-ready");
-  assert.equal(plan.focusId, "copy-plan");
+  assert.equal(plan.focusId, "copy-run-sheet");
+  assert.equal(plan.action, "查看开拍清单");
+  assert.match(plan.description, /基线和变体顺序/u);
   assert.match(plan.description, /3 个/u);
 
   const recoveredReview = buildRecentWorkModel({ hasAnalysis: true, analysisCount: 0 });

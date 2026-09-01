@@ -4,6 +4,27 @@ import { productionStageCode, productionStageLabel } from "./production-status.j
 const PARENT_OUTCOME_LABELS = Object.freeze({ keep: "保留方案", continue: "继续测试" });
 const WARNING_FOCUS_FIELDS = Object.freeze({ roi_mismatch: "roi", ctr_mismatch: "ctr", cvr_mismatch: "cvr" });
 
+export function experimentCardActiveLayer(entry = {}) {
+  const testId = String(entry?.version?.testId || "").trim();
+  if (!testId) throw new Error("版本卡层级缺少测试编号");
+  const decisionState = String(entry?.decisionState?.code || (entry?.version?.decision ? "current" : "missing"));
+  const evaluationCode = String(entry?.evaluation?.code || "pending");
+  const productionStage = productionStageCode(entry?.version?.productionStatus);
+  const dataHealth = experimentDataHealth({ result: entry?.result || null, evaluation: entry?.evaluation });
+
+  if (decisionState === "stale") return "decision";
+  if (decisionState === "current") return "summary";
+  if (entry?.result?.qualityWarnings?.length) return "result";
+  if (decisionState === "missing" && dataHealth.ready) return "decision";
+  if (["metric_missing", "insufficient"].includes(evaluationCode)) return "result";
+  if (!entry?.result) {
+    if (productionStage === "launched") return "result";
+    if (productionStage === "paused") return "summary";
+    return "production";
+  }
+  return "result";
+}
+
 export function buildExperimentVersionActions(entry = {}) {
   const testId = String(entry?.version?.testId || "").trim();
   if (!testId) throw new Error("版本卡操作缺少测试编号");

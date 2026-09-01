@@ -3,6 +3,7 @@ import {
   FIELD_DEFINITIONS,
   TAG_FIELDS,
   analyzeReport,
+  assessPlanShootReadiness,
   creativePlanDependencyFingerprint,
   formatMoney,
   generateCreativePlan,
@@ -12,6 +13,7 @@ import {
   parseCsvDocument,
   planToCsv,
   planToMarkdown,
+  planToRunSheet,
   toMarkdown
 } from "./src/core.js";
 import {
@@ -76,10 +78,21 @@ import {
   experimentLedgerToCsv,
   summarizeExperimentTimeline
 } from "./src/experiment-ledger.js";
-import { buildExperimentNextAction, buildExperimentVersionActions, recommendExperimentParent } from "./src/experiment-actions.js";
+import {
+  buildExperimentNextAction,
+  buildExperimentVersionActions,
+  experimentCardActiveLayer,
+  recommendExperimentParent
+} from "./src/experiment-actions.js";
 import { buildExperimentView, experimentBatchOptions } from "./src/experiment-view.js";
 import { buildExperimentParentComparison } from "./src/experiment-comparison.js";
 import { buildCreativeVersionDiff } from "./src/creative-version-diff.js";
+import { assessOperatorHandoffReadiness, buildOperatorSingleVariableDiff, experimentVersionToOperatorCard } from "./src/operator-handoff.js";
+import { buildLatestOperatorBatchHandoff, latestOperatorBatchToText } from "./src/operator-batch-handoff.js";
+import { buildInspirationRelay, inspirationCardToChallenge, inspirationRelayToText } from "./src/inspiration-relay.js";
+import { buildDirectorMonitorCard, directorMonitorCardToText } from "./src/director-monitor-card.js";
+import { buildDirectorBlindReview, directorBlindReviewDecisionSheetToText, directorBlindReviewKeyToText, directorBlindReviewPackToText } from "./src/director-blind-review.js";
+import { buildDirectorBatchBoard, directorBatchBoardToText, directorBatchEditAssemblyToText } from "./src/director-batch-board.js";
 import { buildDirectorDesk } from "./src/director-desk.js";
 import {
   PRODUCTION_STAGE_DEFINITIONS,
@@ -562,12 +575,14 @@ function focusExperimentVersion(testId, { openDecision = false, openContentDiff 
   if (!card) return false;
   if (openDecision) {
     const decision = card.querySelector(".version-decision");
-    if (decision) decision.open = true;
+    activateExperimentCardLayer(card, decision);
     const target = decision?.querySelector("textarea") || decision?.querySelector("summary") || card;
     focusAndReveal(target);
     return true;
   }
   if (openContentDiff) {
+    const resultLayer = card.querySelector(".version-result-layer");
+    activateExperimentCardLayer(card, resultLayer);
     const contentDiff = card.querySelector(".version-content-diff");
     if (contentDiff) contentDiff.open = true;
     const target = contentDiff?.querySelector("summary") || card;
@@ -576,6 +591,7 @@ function focusExperimentVersion(testId, { openDecision = false, openContentDiff 
     return true;
   }
   if (focusProduction) {
+    activateExperimentCardLayer(card, card.querySelector(".version-production-layer"));
     const production = card.querySelector(".production-stage-select");
     focusAndReveal(production || card);
     return true;
@@ -583,6 +599,12 @@ function focusExperimentVersion(testId, { openDecision = false, openContentDiff 
   card.tabIndex = -1;
   focusAndReveal(card);
   return true;
+}
+
+function activateExperimentCardLayer(card, target) {
+  if (!target) return null;
+  for (const layer of card.querySelectorAll(".version-layer")) layer.open = layer === target;
+  return target;
 }
 
 async function refreshCurrentProjectRecord() {
@@ -593,12 +615,13 @@ async function refreshCurrentProjectRecord() {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-function renderExperimentDecisionEditor(entry) {
+function renderExperimentDecisionEditor(entry, { open = false } = {}) {
   const decision = entry.version.decision;
   const decisionState = entry.decisionState;
   const dataHealth = experimentDataHealth({ result: entry.result, evaluation: entry.evaluation });
-  const details = element("details", "version-decision");
-  details.open = decisionState.stale;
+  const details = element("details", "version-layer version-decision");
+  details.name = `version-layer-${entry.version.testId}`;
+  details.open = open || decisionState.stale;
   const summary = element("summary");
   const summaryText = element("span");
   summaryText.append(element("strong", "", "人工决策"), element("small", "", decisionState.label));
@@ -788,6 +811,45 @@ function renderProductionStatusControl(entry) {
   return section;
 }
 
+function renderOperatorHandoff(entry, timeline) {
+  const targetRoi = Number($("#target-roi").value || 0);
+  const contentDiff = buildOperatorSingleVariableDiff(entry, timeline);
+  const readiness = assessOperatorHandoffReadiness(entry, { targetRoi, contentDiff });
+  const section = element("section", "operator-handoff");
+  section.dataset.ready = String(readiness.ready);
+  const copy = element("div", "operator-handoff-copy");
+  copy.append(
+    element("strong", "", readiness.ready ? "投放交接项已齐" : `投放交接待补 ${readiness.missing.length} 项`),
+    element("small", "", readiness.ready
+      ? "复制后由操盘手人工建计划、设置预算并执行启停。"
+      : readiness.missing.slice(0, 3).map((gap) => gap.label).join("；") + (readiness.missing.length > 3 ? `；另有 ${readiness.missing.length - 3} 项` : ""))
+  );
+  const button = element("button", "secondary operator-handoff-button", "复制投放交接卡");
+  button.type = "button";
+  button.setAttribute("aria-label", `${entry.version.testId}：复制投放交接卡`);
+  const feedback = element("small", "operator-handoff-feedback");
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+  button.addEventListener("click", async () => {
+    if (!readiness.ready) {
+      const preview = readiness.missing.slice(0, 4).map((gap) => gap.label).join("、");
+      if (!window.confirm(`当前投放交接仍有 ${readiness.missing.length} 项待处理：${preview}${readiness.missing.length > 4 ? "等" : ""}。是否仍要复制给操盘手？`)) return;
+    }
+    try {
+      await navigator.clipboard.writeText(experimentVersionToOperatorCard(entry, {
+        targetRoi,
+        projectName: state.currentProject?.name || "当前本地项目",
+        contentDiff
+      }));
+      feedback.textContent = "投放交接卡已复制；未创建计划、设置预算、改变制作状态或执行平台操作。";
+    } catch (error) {
+      feedback.textContent = error.message || "投放交接卡复制失败，请检查浏览器剪贴板权限后重试。";
+    }
+  });
+  section.append(copy, button, feedback);
+  return section;
+}
+
 function renderProductionOverview(timeline) {
   const summary = summarizeProductionTimeline(timeline);
   const container = $("#production-stage-counts");
@@ -804,8 +866,115 @@ function renderProductionOverview(timeline) {
   }
 }
 
+function renderOperatorBatchHandoff(timeline) {
+  const panel = $("#operator-batch-handoff");
+  const versions = $("#operator-batch-versions");
+  const button = $("#copy-operator-batch");
+  const feedback = $("#operator-batch-feedback");
+  versions.replaceChildren();
+  feedback.textContent = "";
+  try {
+    const batch = buildLatestOperatorBatchHandoff(timeline, { targetRoi: Number($("#target-roi").value || 0) });
+    panel.hidden = batch.code === "empty";
+    panel.dataset.ready = String(batch.ready);
+    button.disabled = !batch.copyable;
+    if (batch.code === "empty") return batch;
+    setNodeText("#operator-batch-title", batch.batchId);
+    if (batch.code === "too_large") {
+      setNodeText("#operator-batch-summary", `共 ${batch.total} 个版本，超过单次交接上限；请拆分批次后再复制。`);
+      versions.append(element("small", "operator-batch-feedback", batch.issues[0].missing[0]));
+      return batch;
+    }
+    setNodeText("#operator-batch-summary", batch.ready
+      ? `${batch.readyCount} / ${batch.total} 条可交接 · ${batch.readyChecks} / ${batch.totalChecks} 项检查通过。`
+      : `${batch.readyCount} / ${batch.total} 条可交接 · 共待补 ${batch.missingCount} 项；复制前会再次确认。`);
+    for (const item of batch.entries) {
+      const row = element("div", "operator-batch-version");
+      row.dataset.ready = String(item.readiness.ready);
+      const missing = item.readiness.missing.map((gap) => gap.label);
+      row.append(
+        element("strong", "", `${item.type} · ${item.testId}`),
+        element("small", "", item.readiness.ready ? "可交接" : `待补 ${missing.length} 项 · ${missing.slice(0, 2).join("、")}${missing.length > 2 ? "等" : ""}`)
+      );
+      versions.append(row);
+    }
+    return batch;
+  } catch (error) {
+    panel.hidden = false;
+    panel.dataset.ready = "false";
+    button.disabled = true;
+    setNodeText("#operator-batch-title", "批次交接不可用");
+    setNodeText("#operator-batch-summary", error.message || "当前版本记录无法安全生成批次交接。");
+    return null;
+  }
+}
+
+function renderInspirationRelay(timeline) {
+  const panel = $("#inspiration-relay");
+  const cards = $("#inspiration-relay-cards");
+  const button = $("#copy-inspiration-relay");
+  const feedback = $("#inspiration-relay-feedback");
+  cards.replaceChildren();
+  feedback.textContent = "";
+  try {
+    const relay = buildInspirationRelay(timeline, { targetRoi: Number($("#target-roi").value || 0) });
+    panel.hidden = relay.code === "empty";
+    button.disabled = relay.code !== "ready";
+    if (relay.code === "empty") return relay;
+    if (relay.code === "too_large") {
+      setNodeText("#inspiration-relay-state", "批次过大 · 请先拆分");
+      setNodeText("#inspiration-relay-summary", `最新批次含 ${relay.sourceVersionCount} 个版本，超过本地安全抽象范围。`);
+      return relay;
+    }
+    setNodeText("#inspiration-relay-state", `${relay.cards.length} 个方向 · 脱敏分享`);
+    setNodeText("#inspiration-relay-summary", `从 ${relay.sourceVersionCount} 个本地版本抽象出 ${relay.cards.length} 个可迁移机制；${relay.testedCount} 个已有结果观察，但均不构成因果结论。`);
+    for (const card of relay.cards) {
+      const item = element("article", "inspiration-relay-card");
+      const challenge = element("button", "secondary inspiration-card-action", "复制共创挑战");
+      challenge.type = "button";
+      challenge.setAttribute("aria-label", `复制“${card.mechanismLabel}”共创挑战`);
+      challenge.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(inspirationCardToChallenge(card));
+          feedback.textContent = `已复制“${card.mechanismLabel}”共创挑战；请让参与者完成三路原创发散后再进入方案评审。`;
+        } catch (error) {
+          feedback.textContent = error.message || "共创挑战复制失败，请检查剪贴板权限后重试。";
+        }
+      });
+      item.append(
+        element("strong", "", `${card.mechanismLabel} · ${card.variableLabel}`),
+        element("small", "", card.question),
+        element("small", "", `证据状态：${card.evidenceLabel}`),
+        challenge
+      );
+      cards.append(item);
+    }
+    return relay;
+  } catch (error) {
+    panel.hidden = false;
+    button.disabled = true;
+    setNodeText("#inspiration-relay-state", "暂不可用");
+    setNodeText("#inspiration-relay-summary", error.message || "当前版本无法安全抽象灵感方向。");
+    return null;
+  }
+}
+
 function currentExperimentTimeline() {
   return buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5));
+}
+
+function renderExperimentCardLayer(entry, { className, title, description, stateLabel, open = false, children = [] }) {
+  const details = element("details", `version-layer ${className}`);
+  details.name = `version-layer-${entry.version.testId}`;
+  details.open = open;
+  const summary = element("summary");
+  const copy = element("span");
+  copy.append(element("strong", "", title), element("small", "", description));
+  summary.append(copy, element("b", "version-layer-state", stateLabel));
+  const body = element("div", "version-layer-body");
+  body.append(...children.filter(Boolean));
+  details.append(summary, body);
+  return details;
 }
 
 function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {}) {
@@ -852,6 +1021,7 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
     const card = element("article", "version-item");
     card.dataset.testId = entry.version.testId;
     const cardActions = buildExperimentVersionActions(entry);
+    const activeLayer = experimentCardActiveLayer(entry);
     const head = element("div", "version-item-head");
     const title = element("span");
     title.append(element("strong", "", entry.version.testId), element("small", "", entry.version.parentVersionId ? `父版本 ${entry.version.parentVersionId}` : "新测试起点"));
@@ -861,6 +1031,28 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
     const dataHealth = experimentDataHealth({ result: entry.result, evaluation: entry.evaluation });
     const contentDiff = renderCreativeVersionDiff(entry, timeline);
     const parentComparison = renderExperimentParentComparison(entry, timeline);
+    const productionLayer = renderExperimentCardLayer(entry, {
+      className: "version-production-layer",
+      title: "制作与投放交接",
+      description: "人工状态、阈值与单变量检查",
+      stateLabel: productionStageLabel(entry.version.productionStatus),
+      open: activeLayer === "production",
+      children: [renderProductionStatusControl(entry), renderOperatorHandoff(entry, timeline)]
+    });
+    const resultLayer = renderExperimentCardLayer(entry, {
+      className: "version-result-layer",
+      title: "结果",
+      description: "指标、口径与版本对照",
+      stateLabel: dataHealth.label,
+      open: activeLayer === "result",
+      children: [
+        element("small", `version-data-health${dataHealth.ready ? " ready" : ""}`, `数据健康：${dataHealth.label}`),
+        ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
+        element("small", "version-result-detail", entry.evaluation.detail),
+        contentDiff,
+        parentComparison
+      ]
+    });
     const quickActions = element("div", "version-quick-actions");
     const resultAction = element("button", "secondary", cardActions.result.label);
     resultAction.type = "button";
@@ -884,14 +1076,10 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
       head,
       element("p", "", `${entry.version.primaryVariable} · 基线 ${entry.version.baselineCreative || "未填写"}`),
       element("p", "", metricText(entry.result, entry.version.productionStatus)),
-      element("small", `version-data-health${dataHealth.ready ? " ready" : ""}`, `数据健康：${dataHealth.label}`),
-      ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
-      element("small", "", entry.evaluation.detail),
-      renderProductionStatusControl(entry),
-      ...(contentDiff ? [contentDiff] : []),
-      ...(parentComparison ? [parentComparison] : []),
-      quickActions,
-      renderExperimentDecisionEditor(entry)
+      productionLayer,
+      resultLayer,
+      renderExperimentDecisionEditor(entry, { open: activeLayer === "decision" }),
+      quickActions
     );
     container.append(card);
   }
@@ -908,6 +1096,8 @@ function renderExperimentLoop() {
     : "尚无测试版本；生成下一版任务后会自动建立实验台账。");
   renderExperimentNextAction(timeline);
   renderProductionOverview(timeline);
+  renderOperatorBatchHandoff(timeline);
+  renderInspirationRelay(timeline);
   renderManualResultOptions(timeline);
   renderExperimentVersionBrowser(timeline, { refreshBatches: true });
   $("#export-experiment-csv").disabled = !timeline.length;
@@ -935,6 +1125,38 @@ function renderExperimentLoop() {
   renderRecentTask();
   renderProjectHub();
 }
+
+$("#copy-operator-batch").addEventListener("click", async () => {
+  const feedback = $("#operator-batch-feedback");
+  try {
+    const timeline = currentExperimentTimeline();
+    const targetRoi = Number($("#target-roi").value || 0);
+    const batch = buildLatestOperatorBatchHandoff(timeline, { targetRoi });
+    if (!batch.copyable) throw new Error(batch.code === "empty" ? "当前没有可交接的测试批次" : "当前批次过大，请拆分后再交接");
+    if (!batch.ready) {
+      const preview = batch.issues.slice(0, 3).map((issue) => `${issue.testId}：${issue.missing.slice(0, 2).join("、")}`).join("；");
+      if (!window.confirm(`最新批次仍有 ${batch.total - batch.readyCount} 条版本、${batch.missingCount} 项待处理：${preview}${batch.issues.length > 3 ? "等" : ""}。是否仍要复制给操盘手？`)) return;
+    }
+    await navigator.clipboard.writeText(latestOperatorBatchToText(timeline, {
+      targetRoi,
+      projectName: state.currentProject?.name || "当前本地项目"
+    }));
+    feedback.textContent = "整批投放交接包已复制；只写入剪贴板，未创建计划、设置预算、改变状态或执行平台操作。";
+  } catch (error) {
+    feedback.textContent = error.message || "整批投放交接包复制失败，请检查剪贴板权限后重试。";
+  }
+});
+
+$("#copy-inspiration-relay").addEventListener("click", async () => {
+  const feedback = $("#inspiration-relay-feedback");
+  try {
+    const relay = buildInspirationRelay(currentExperimentTimeline(), { targetRoi: Number($("#target-roi").value || 0) });
+    await navigator.clipboard.writeText(inspirationRelayToText(relay));
+    feedback.textContent = "脱敏灵感包已复制；不含项目、版本、素材、指标数值或完整脚本，请用于原创改写而非照搬。";
+  } catch (error) {
+    feedback.textContent = error.message || "脱敏灵感包复制失败，请检查剪贴板权限后重试。";
+  }
+});
 
 function renderResultImportPreview() {
   const preview = $("#experiment-result-preview");
@@ -1281,7 +1503,7 @@ async function markPlanCompleted() {
 }
 
 function setPlanExportControls(disabled, reason = "") {
-  for (const id of ["copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
+  for (const id of ["copy-run-sheet", "copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
     const button = document.getElementById(id);
     if (!button) continue;
     button.disabled = disabled;
@@ -1311,6 +1533,8 @@ function markPlanStale(reason) {
   setStatus("#plan-state", "需重新生成");
   $("#copy-state").textContent = reason || "上下文已变化，请重新生成后再导出。";
   setPlanExportControls(true, "上下文已变化，请先重新生成下一版任务");
+  renderDirectorBlindReview();
+  renderDirectorBatchBoard();
   updatePlanEmptyState();
   updateWorkflowGuide();
 }
@@ -1419,10 +1643,10 @@ function updateWorkflowGuide() {
     action.dataset.targetView = "next";
     action.dataset.focusId = "generate-plan";
   } else if (!exported) {
-    setNodeText("#workflow-next-step", "下一步：检查生成内容，并复制或导出生产资料。");
-    action.textContent = "查看并导出任务";
+    setNodeText("#workflow-next-step", "下一步：检查生成内容，并复制按顺序整理的现场开拍清单。");
+    action.textContent = "查看开拍清单";
     action.dataset.targetView = "next";
-    action.dataset.focusId = "copy-plan";
+    action.dataset.focusId = "copy-run-sheet";
   } else {
     setNodeText("#workflow-next-step", "本轮已完成。上线后可导入新结果，开始下一轮复盘。");
     action.textContent = "开始下一轮复盘";
@@ -2238,6 +2462,10 @@ function editorField(labelText, value, index, path, rows = 2) {
   input.setAttribute("aria-label", `${state.plan?.items?.[index]?.id || `任务 ${index + 1}`}：${labelText}`);
   input.addEventListener("input", () => {
     setPlanValue(Number(input.dataset.index), input.dataset.path, input.value);
+    renderPlanShootReadiness();
+    renderDirectorMonitorReadiness();
+    renderDirectorBlindReview();
+    renderDirectorBatchBoard();
     clearPlanExportReceipt();
     $("#copy-state").textContent = "方案有未导出的修改；保存后可重新复制或导出。";
     updateWorkflowGuide();
@@ -2281,6 +2509,10 @@ function schedulePlanSave() {
 function renderPlan(plan) {
   $("#plan-batch").textContent = plan.batchId || plan.items[0]?.id.replace(/-(?:B00|A\d{2})$/u, "") || "—";
   $("#plan-baseline").textContent = plan.items[0]?.baselineCreative || "—";
+  const firstItem = plan.items[0];
+  setNodeText("#plan-shoot-order", firstItem
+    ? `现场顺序：先拍 ${firstItem.id} 基线，再按编号拍变体；每条只替换“${firstItem.singleVariable}”，其余条件保持一致。下方内容均可编辑并自动保存。`
+    : "当前没有可执行的开拍任务，请重新生成方案。");
   const list = $("#plan-list");
   list.replaceChildren();
   if (!plan.items.length) list.append(element("p", "empty-inline", "当前方案没有可编辑任务，请重新完成复盘并生成。"));
@@ -2289,8 +2521,10 @@ function renderPlan(plan) {
     if (index === 0) card.open = true;
     const summary = element("summary");
     const title = element("span");
-    title.append(element("strong", "", item.id), element("small", "", `${item.type} · 只改 ${item.singleVariable}`));
-    summary.append(title, element("span", `badge${index === 0 ? "" : " warn"}`, item.type));
+    const readiness = element("small", "plan-card-readiness", "检查中");
+    readiness.dataset.index = String(index);
+    title.append(element("strong", "", item.id), element("small", "", `${index + 1} / ${plan.items.length} · ${item.type} · 只改 ${item.singleVariable}`), readiness);
+    summary.append(title, element("span", `badge${index === 0 ? "" : " warn"}`, index === 0 ? "先拍" : `第 ${index + 1} 条`));
     card.append(summary);
     const body = element("div", "plan-editor");
     body.append(
@@ -2319,11 +2553,225 @@ function renderPlan(plan) {
       editorField("字幕重点", item.production.subtitleHighlights, index, "production.subtitleHighlights", 5),
       editorField("合规检查", item.production.complianceChecklist, index, "production.complianceChecklist", 6)
     );
+    const monitorTools = element("div", "director-monitor-tools");
+    const monitorAction = element("button", "secondary director-monitor-action", "复制前三秒监看卡");
+    monitorAction.type = "button";
+    monitorAction.dataset.index = String(index);
+    monitorAction.setAttribute("aria-describedby", `director-monitor-state-${index}`);
+    monitorAction.addEventListener("click", async () => {
+      try {
+        const monitor = buildDirectorMonitorCard(state.plan, { itemIndex: index });
+        await navigator.clipboard.writeText(directorMonitorCardToText(monitor));
+        $("#copy-state").textContent = `已复制 ${monitor.id} 的前三秒现场监看卡；请在手机停帧、真人语速和证据连续性下人工过闸。`;
+      } catch (error) {
+        $("#copy-state").textContent = error.message || "前三秒监看卡复制失败，请补齐现场字段后重试。";
+      }
+    });
+    const monitorState = element("small", "director-monitor-state", "检查首帧、口播、字幕与证据承接…");
+    monitorState.id = `director-monitor-state-${index}`;
+    monitorState.dataset.index = String(index);
+    monitorTools.append(monitorAction, monitorState);
+    body.append(monitorTools);
     card.append(body);
     list.append(card);
   });
+  renderPlanShootReadiness();
+  renderDirectorMonitorReadiness();
+  renderDirectorBlindReview();
+  renderDirectorBatchBoard();
   $("#plan-results").hidden = false;
   updatePlanEmptyState();
+}
+
+function renderDirectorBlindReview() {
+  const panel = $("#director-blind-review");
+  const packButton = $("#copy-director-blind-review");
+  const keyButton = $("#copy-director-blind-review-key");
+  const decisionButton = $("#copy-director-blind-review-decision");
+  const feedback = $("#director-blind-review-feedback");
+  if (!panel || !packButton || !keyButton || !decisionButton) return null;
+  feedback.textContent = "";
+  if (!state.plan?.items?.length) {
+    packButton.disabled = true;
+    keyButton.disabled = true;
+    decisionButton.disabled = true;
+    setNodeText("#director-blind-review-state", "等待方案");
+    setNodeText("#director-blind-review-summary", "至少需要两条字段完整的同批方案。");
+    return null;
+  }
+  if (state.planStale) {
+    packButton.disabled = true;
+    keyButton.disabled = true;
+    decisionButton.disabled = true;
+    setNodeText("#director-blind-review-state", "方案已过期");
+    setNodeText("#director-blind-review-summary", "当前上下文已经变化，请重新生成方案后再发起盲审。");
+    return null;
+  }
+  try {
+    const review = buildDirectorBlindReview(state.plan);
+    const ready = review.copyable === true;
+    packButton.disabled = !ready;
+    keyButton.disabled = !ready;
+    decisionButton.disabled = !ready;
+    setNodeText("#director-blind-review-state", ready ? `${review.cards.length} 条 · 已匿名打乱` : `待补 ${review.blockers.length} 项`);
+    setNodeText("#director-blind-review-summary", ready
+      ? `${review.reviewId} · 匿名包不含测试编号、基线身份、来源素材或历史指标；编辑方案后编号会变化。`
+      : `盲审包暂不可用：${review.blockers.slice(0, 3).join("；")}${review.blockers.length > 3 ? `；另有 ${review.blockers.length - 3} 项` : ""}`);
+    return review;
+  } catch (error) {
+    packButton.disabled = true;
+    keyButton.disabled = true;
+    decisionButton.disabled = true;
+    setNodeText("#director-blind-review-state", "暂不可用");
+    setNodeText("#director-blind-review-summary", error.message || "当前方案无法安全生成盲审包。");
+    return null;
+  }
+}
+
+function renderDirectorBatchBoard() {
+  const boardButton = $("#copy-director-batch-board");
+  const assemblyButton = $("#copy-director-edit-assembly");
+  const feedback = $("#director-batch-board-feedback");
+  if (!boardButton || !assemblyButton || !feedback) return null;
+  feedback.textContent = "";
+  if (!state.plan?.items?.length) {
+    boardButton.disabled = true;
+    assemblyButton.disabled = true;
+    setNodeText("#director-batch-board-state", "等待方案");
+    setNodeText("#director-batch-board-summary", "至少需要两条字段完整、变量唯一且固定项一致的同批方案。");
+    return null;
+  }
+  if (state.planStale) {
+    boardButton.disabled = true;
+    assemblyButton.disabled = true;
+    setNodeText("#director-batch-board-state", "方案已过期");
+    setNodeText("#director-batch-board-summary", "当前上下文已经变化，请重新生成方案后再编排批次镜头。");
+    return null;
+  }
+  try {
+    const board = buildDirectorBatchBoard(state.plan);
+    const ready = board.copyable === true;
+    boardButton.disabled = !ready;
+    assemblyButton.disabled = !ready;
+    setNodeText("#director-batch-board-state", ready ? `${board.total} 条 · 只改${board.variableLabel}` : `待修正 ${board.blockers.length} 项`);
+    setNodeText("#director-batch-board-summary", ready
+      ? `先拍 B00，再共用 ${board.sharedShots.length} 组骨架并完成 ${Math.max(0, board.entries.length - 1)} 条变体插拍；现场仍需人工确认连续性。`
+      : `镜头板暂不可用：${board.blockers.slice(0, 3).join("；")}${board.blockers.length > 3 ? `；另有 ${board.blockers.length - 3} 项` : ""}`);
+    return board;
+  } catch (error) {
+    boardButton.disabled = true;
+    assemblyButton.disabled = true;
+    setNodeText("#director-batch-board-state", "暂不可用");
+    setNodeText("#director-batch-board-summary", error.message || "当前方案无法安全编排共用镜头。");
+    return null;
+  }
+}
+
+function renderDirectorMonitorReadiness() {
+  for (const button of document.querySelectorAll(".director-monitor-action")) {
+    const index = Number(button.dataset.index);
+    const status = $(`#director-monitor-state-${index}`);
+    try {
+      const monitor = buildDirectorMonitorCard(state.plan, { itemIndex: index });
+      button.disabled = !monitor.copyable;
+      button.dataset.ready = String(monitor.copyable);
+      button.textContent = monitor.copyable ? "复制前三秒监看卡" : `监看卡待补 ${monitor.missing.length} 项`;
+      if (status) {
+        status.dataset.ready = String(monitor.copyable);
+        status.textContent = monitor.copyable
+          ? monitor.warnings.length
+            ? `可复制 · ${monitor.warnings.length} 项开机前提醒`
+            : "可复制 · 首帧、口播、字幕与证据字段已齐"
+          : `待补：${monitor.missing.join("、")}`;
+      }
+    } catch (error) {
+      button.disabled = true;
+      button.dataset.ready = "false";
+      button.textContent = "监看卡暂不可用";
+      if (status) status.textContent = error.message || "当前方案无法生成监看卡";
+    }
+  }
+}
+
+$("#copy-director-blind-review").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  try {
+    const review = buildDirectorBlindReview(state.plan);
+    await navigator.clipboard.writeText(directorBlindReviewPackToText(review));
+    $("#director-blind-review-feedback").textContent = `已复制匿名盲审包 ${review.reviewId}；请先收齐并锁定反馈，再揭示导演映射。`;
+  } catch (error) {
+    $("#director-blind-review-feedback").textContent = error.message || "匿名盲审包复制失败，请检查字段与剪贴板权限。";
+  }
+});
+
+$("#copy-director-blind-review-key").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  try {
+    const review = buildDirectorBlindReview(state.plan);
+    await navigator.clipboard.writeText(directorBlindReviewKeyToText(review));
+    $("#director-blind-review-feedback").textContent = `已复制导演映射 ${review.reviewId}；请勿发给评审者，并确认编号与盲审包一致。`;
+  } catch (error) {
+    $("#director-blind-review-feedback").textContent = error.message || "导演映射复制失败，请重新生成当前盲审包。";
+  }
+});
+
+$("#copy-director-blind-review-decision").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  try {
+    const review = buildDirectorBlindReview(state.plan);
+    await navigator.clipboard.writeText(directorBlindReviewDecisionSheetToText(review));
+    $("#director-blind-review-feedback").textContent = `已复制导演合议单 ${review.reviewId}；请先填回收事实，再在保留、单变量重写和淘汰中三选一。`;
+  } catch (error) {
+    $("#director-blind-review-feedback").textContent = error.message || "导演合议单复制失败，请确认盲审包与映射仍为同一编号。";
+  }
+});
+
+$("#copy-director-batch-board").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  try {
+    const board = buildDirectorBatchBoard(state.plan);
+    await navigator.clipboard.writeText(directorBatchBoardToText(board));
+    $("#director-batch-board-feedback").textContent = `已复制 ${board.batchId} 的批次共用镜头板；请先锁定 B00，再按场记编号拍 ${Math.max(0, board.entries.length - 1)} 条变量插条。`;
+  } catch (error) {
+    $("#director-batch-board-feedback").textContent = error.message || "批次共用镜头板复制失败，请检查单变量与现场字段。";
+  }
+});
+
+$("#copy-director-edit-assembly").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  try {
+    const board = buildDirectorBatchBoard(state.plan);
+    await navigator.clipboard.writeText(directorBatchEditAssemblyToText(board));
+    $("#director-batch-board-feedback").textContent = `已复制 ${board.batchId} 的批次剪辑装配单；请先锁定 B00 时间轴，再逐个替换 ${Math.max(0, board.entries.length - 1)} 条变体的专属素材。`;
+  } catch (error) {
+    $("#director-batch-board-feedback").textContent = error.message || "批次剪辑装配单复制失败，请检查变量边界与现场字段。";
+  }
+});
+
+function renderPlanShootReadiness() {
+  const notice = $("#plan-production-readiness");
+  if (!notice || !state.plan?.items?.length || state.planStale) {
+    if (notice) {
+      notice.className = "notice compact";
+      notice.dataset.ready = "false";
+      notice.textContent = "生成并检查方案后，这里会列出是否具备现场执行所需内容。";
+    }
+    return null;
+  }
+  const assessment = assessPlanShootReadiness(state.plan);
+  notice.className = `notice compact${assessment.ready ? " ready" : ""}`;
+  notice.dataset.ready = String(assessment.ready);
+  const incomplete = assessment.items.filter((item) => !item.ready);
+  const preview = incomplete.slice(0, 3).map((item) => `${item.id}：${item.missing.join("、")}`).join("；");
+  notice.textContent = assessment.ready
+    ? `开拍准备：${assessment.readyCount} / ${assessment.total} 条内容已齐。仍需编导现场核对事实、授权与表达。`
+    : `开拍准备：${assessment.readyCount} / ${assessment.total} 条内容已齐，共待补 ${assessment.missingCount} 项。${preview}${incomplete.length > 3 ? `；另有 ${incomplete.length - 3} 条` : ""}。复制前会再次确认。`;
+  for (const node of document.querySelectorAll(".plan-card-readiness")) {
+    const item = assessment.items[Number(node.dataset.index)];
+    node.dataset.ready = String(item?.ready || false);
+    node.textContent = item?.ready ? "开拍项已齐" : `待补 ${item?.missing.length || 0} 项 · ${item?.missing.join("、") || "请检查"}`;
+  }
+  return assessment;
 }
 
 $("#copy-plan").addEventListener("click", async () => {
@@ -2335,6 +2783,23 @@ $("#copy-plan").addEventListener("click", async () => {
     updateWorkflowGuide();
   } catch {
     $("#copy-state").textContent = "复制失败，请改用 Markdown 导出。";
+  }
+});
+
+$("#copy-run-sheet").addEventListener("click", async () => {
+  if (!state.plan || state.planStale) return;
+  const readiness = renderPlanShootReadiness();
+  if (readiness && !readiness.ready) {
+    const gaps = readiness.items.filter((item) => !item.ready).slice(0, 3).map((item) => `${item.id}：${item.missing.join("、")}`).join("；");
+    if (!window.confirm(`当前开拍清单仍有 ${readiness.missingCount} 项待补：${gaps}${readiness.items.filter((item) => !item.ready).length > 3 ? "；还有其他任务待补" : ""}。是否仍要复制给现场？`)) return;
+  }
+  try {
+    await navigator.clipboard.writeText(planToRunSheet(state.plan));
+    $("#copy-state").textContent = "已复制现场开拍清单；请按基线 → 变体顺序执行，并保持非测试条件一致。";
+    await markPlanCompleted();
+    updateWorkflowGuide();
+  } catch {
+    $("#copy-state").textContent = "开拍清单复制失败，请改用完整方案或 Markdown 导出。";
   }
 });
 

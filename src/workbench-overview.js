@@ -7,6 +7,140 @@ function primaryAction(type, target, control, label, focus = control) {
   return { type, target, control, focus, label };
 }
 
+function workbenchDeliveryState({
+  files = 0,
+  hasProcessing = false,
+  processingComplete = false,
+  processingPrepared = false,
+  processingExported = false,
+  transcriptionTasks = 0,
+  transcriptionExported = false,
+  characters = 0,
+  transcriptRecoverable = false,
+  hasAnalysis = false,
+  analysisPreserved = false,
+  hasRevisionDraft = false,
+  revisionConfirmed = false,
+  revisionPreserved = false,
+  handoffState = "idle"
+} = {}) {
+  if (handoffState === "sent") {
+    return {
+      tone: "success",
+      label: "可拍草稿已发送到编导台",
+      detail: "本次交接已进入当前浏览器会话；侧边栏仍需人工预览和确认。"
+    };
+  }
+  if (handoffState === "conflict") {
+    return {
+      tone: "attention",
+      label: "交付未完成",
+      detail: "编导台已有另一份待确认结果，本次没有覆盖；当前草稿仍保留在本页。"
+    };
+  }
+  if (handoffState === "failed") {
+    return {
+      tone: "attention",
+      label: "交付失败 · 草稿仍在本页",
+      detail: "可重试发送或导出交接包；关闭页面前请先保留成果。"
+    };
+  }
+  if (hasRevisionDraft) {
+    if (revisionPreserved) {
+      return revisionConfirmed
+        ? {
+            tone: "success",
+            label: "已确认草稿已导出",
+            detail: "导出文件由浏览器下载记录和用户选择的本机目录管理；侧边栏尚未自动应用。"
+          }
+        : {
+            tone: "attention",
+            label: "草稿已导出 · 尚未确认",
+            detail: "导出只代表文件已创建，不代表编导审核完成；请继续核对当前草稿。"
+          };
+    }
+    return {
+      tone: "attention",
+      label: revisionConfirmed ? "草稿已确认 · 尚未交付" : "可拍草稿仅在本页",
+      detail: revisionConfirmed
+        ? "确认不等于发送；请发送到编导台或导出文件后再关闭页面。"
+        : "请先人工核对并确认，再发送或导出；当前内容不会自动保存。"
+    };
+  }
+  if (hasAnalysis) {
+    return analysisPreserved
+      ? {
+          tone: "success",
+          label: "结构分析已导出",
+          detail: "导出文件已创建；若要进入制作，还需选择改进项并生成可拍草稿。"
+        }
+      : {
+          tone: "attention",
+          label: "结构分析仅在本页",
+          detail: "尚未导出或发送；关闭页面前请先保留需要的成果。"
+        };
+  }
+  if (characters) {
+    return transcriptRecoverable
+      ? {
+          tone: "neutral",
+          label: "正文可从本地文件重新导入",
+          detail: "当前还没有结构分析成果；源文件不会被扩展复制或保存。"
+        }
+      : {
+          tone: "attention",
+          label: "手动转写正文仅在本页",
+          detail: "当前正文不能由扩展恢复；关闭页面前请先完成并导出分析。"
+        };
+  }
+  if (transcriptionTasks) {
+    return transcriptionExported
+      ? {
+          tone: "success",
+          label: "本机转写清单已导出",
+          detail: "请在本机执行后，再导入或粘贴生成的转写文本。"
+        }
+      : {
+          tone: "attention",
+          label: "转写任务仅在本页",
+          detail: "清单尚未导出；关闭页面会丢失当前任务。"
+        };
+  }
+  if (hasProcessing) {
+    if (processingComplete) {
+      return {
+        tone: "neutral",
+        label: "本机处理结果已导入",
+        detail: "当前还没有文案分析成果；下一步导入转写文本。"
+      };
+    }
+    if (processingExported) {
+      return {
+        tone: "success",
+        label: "本机处理清单已导出",
+        detail: "请在可信设备运行仓库内执行器，再回到本页导入结果。"
+      };
+    }
+    return {
+      tone: "attention",
+      label: processingPrepared ? "命令已复制 · 任务仍在本页" : "处理任务仅在本页",
+      detail: "任务清单尚未导出；关闭页面前请先导出或完成本机处理。"
+    };
+  }
+  if (files) {
+    return {
+      tone: "neutral",
+      label: "素材选择仅在本页",
+      detail: "浏览器不会保存视频引用；重新打开工作台后需要再次选择。"
+    };
+  }
+  return {
+    tone: "neutral",
+    label: "尚无待交付成果",
+    detail: "选择开始方式后，顶部会区分页面内成果、已导出文件和已发送交接。"
+  };
+}
+
 export function buildWorkbenchResetPrompt({
   entryMode = "",
   filesCount = 0,
@@ -15,6 +149,7 @@ export function buildWorkbenchResetPrompt({
   transcriptionTaskCount = 0,
   transcriptionExported = false,
   transcriptLength = 0,
+  transcriptRecoverable = false,
   hasAnalysis = false,
   analysisPreserved = false,
   hasRevisionDraft = false,
@@ -36,6 +171,7 @@ export function buildWorkbenchResetPrompt({
   const atRisk = [];
   if (processingTasks && !processingExported) atRisk.push("尚未导出的处理任务");
   if (transcriptionTasks && !transcriptionExported) atRisk.push("尚未导出的转写任务");
+  if (characters && !transcriptRecoverable) atRisk.push("仅存在本页的手动转写正文");
   if (analysis && !analysisPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功发送的分析结果");
   if (revision && !revisionPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功交接的可拍任务草稿");
   const currentItems = [];
@@ -60,6 +196,10 @@ export function buildWorkbenchResetPrompt({
   };
 }
 
+export function hasWorkbenchUnloadRisk(snapshot = {}) {
+  return buildWorkbenchResetPrompt(snapshot).atRisk.length > 0;
+}
+
 export function buildWorkbenchOverview({
   entryMode = "",
   filesCount = 0,
@@ -67,11 +207,17 @@ export function buildWorkbenchOverview({
   missingSourceField = "files",
   processing = null,
   processingPrepared = false,
+  processingExported = false,
+  transcriptionTaskCount = 0,
+  transcriptionExported = false,
   transcriptLength = 0,
+  transcriptRecoverable = false,
   analysis = null,
+  analysisPreserved = false,
   selectedRecommendationCount = 0,
   revisionDraft = null,
   revisionConfirmed = false,
+  revisionPreserved = false,
   handoffState = "idle"
 } = {}) {
   const files = safeCount(filesCount);
@@ -81,6 +227,7 @@ export function buildWorkbenchOverview({
   const finished = processing ? safeCount(processing.finished) : 0;
   const failed = processing ? safeCount(processing.failed) : 0;
   const skipped = processing ? safeCount(processing.skipped) : 0;
+  const transcriptionTasks = safeCount(transcriptionTaskCount);
   const hasProcessing = Boolean(processing);
   const processingComplete = hasProcessing && tasks > 0 && completed === tasks;
   const processingAttention = hasProcessing && (failed > 0 || skipped > 0);
@@ -95,6 +242,23 @@ export function buildWorkbenchOverview({
   const effectiveEntryMode = selectedEntryMode || (files || hasProcessing ? "video" : "");
   const sourceOptional = selectedEntryMode === "transcript" && files === 0;
   const processingOptional = selectedEntryMode === "transcript" && !hasProcessing;
+  const delivery = workbenchDeliveryState({
+    files,
+    hasProcessing,
+    processingComplete,
+    processingPrepared,
+    processingExported,
+    transcriptionTasks,
+    transcriptionExported,
+    characters,
+    transcriptRecoverable,
+    hasAnalysis,
+    analysisPreserved,
+    hasRevisionDraft,
+    revisionConfirmed: confirmedRevision,
+    revisionPreserved,
+    handoffState
+  });
   let entryNotice = "入口选择只在当前页面内生效。切换入口不会清空已选视频、任务、转写正文或分析结果。";
   if (selectedEntryMode === "video" && hasAnalysis) {
     entryNotice = "已切换到视频入口，但当前分析结果仍保留；顶部会先完成交接，避免把已完成工作隐藏或误标为未开始。";
@@ -329,6 +493,7 @@ export function buildWorkbenchOverview({
     steps,
     phase,
     next,
+    delivery,
     summary: [
       phase.label,
       files ? `${files} 个素材` : "未选择素材",

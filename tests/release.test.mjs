@@ -35,6 +35,12 @@ const paths = {
   experimentView: "../src/experiment-view.js",
   experimentComparison: "../src/experiment-comparison.js",
   creativeVersionDiff: "../src/creative-version-diff.js",
+  operatorHandoff: "../src/operator-handoff.js",
+  operatorBatchHandoff: "../src/operator-batch-handoff.js",
+  inspirationRelay: "../src/inspiration-relay.js",
+  directorMonitorCard: "../src/director-monitor-card.js",
+  directorBlindReview: "../src/director-blind-review.js",
+  directorBatchBoard: "../src/director-batch-board.js",
   directorDesk: "../src/director-desk.js",
   productionStatus: "../src/production-status.js",
   idb: "../vendor/idb.js",
@@ -82,7 +88,7 @@ test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
   assert.ok(checkedFiles.length >= 15);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/operation-guard.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/director-desk.js", "src/production-status.js", "vendor/idb.js"]) {
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/operation-guard.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/operator-handoff.js", "src/operator-batch-handoff.js", "src/inspiration-relay.js", "src/director-monitor-card.js", "src/director-blind-review.js", "src/director-batch-board.js", "src/director-desk.js", "src/production-status.js", "vendor/idb.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
 });
@@ -118,6 +124,12 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.experimentView,
     files.experimentComparison,
     files.creativeVersionDiff,
+    files.operatorHandoff,
+    files.operatorBatchHandoff,
+    files.inspirationRelay,
+    files.directorMonitorCard,
+    files.directorBlindReview,
+    files.directorBatchBoard,
     files.directorDesk,
     files.productionStatus,
     files.idb
@@ -148,6 +160,7 @@ test("ships the open-source release, privacy and rollback handoff", () => {
   assert.match(files.checklist, /npm test/u);
   assert.match(files.checklist, /npm run check/u);
   assert.match(files.productAudit, /核心高价值/u);
-  assert.match(files.productAudit, /待合并或删除/u);
+  assert.match(files.productAudit, /已完成收敛/u);
+  assert.match(files.productAudit, /来源备注并降为弱操作/u);
   assert.match(files.productAudit, /不采集用户行为数据/u);
 });

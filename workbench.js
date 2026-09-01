@@ -17,7 +17,7 @@ import {
 import { isSupportedVideoFile, transcodeProgress, validateLocalVideoBatch, validateTranscodeResult } from "./src/transcode.js";
 import { formatLocalBytes } from "./src/local-file-guard.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
-import { buildWorkbenchOverview, buildWorkbenchResetPrompt } from "./src/workbench-overview.js";
+import { buildWorkbenchOverview, buildWorkbenchResetPrompt, hasWorkbenchUnloadRisk } from "./src/workbench-overview.js";
 import { createLatestOperationGuard } from "./src/operation-guard.js";
 import {
   ANALYSIS_HANDOFF_INBOX_KEY,
@@ -219,6 +219,9 @@ function updateWorkbenchOverview() {
   const manifest = state.processingManifest;
   const analysis = state.analysis;
   const progress = manifest ? transcodeProgress(manifest.tasks) : null;
+  const transcriptRecoverable = Boolean(
+    state.transcriptDocument && transcriptDocumentMatchesText(state.transcriptDocument, $("#transcript-text").value.trim())
+  );
   const model = buildWorkbenchOverview({
     entryMode: state.entryMode,
     filesCount: state.files.length,
@@ -226,11 +229,17 @@ function updateWorkbenchOverview() {
     missingSourceField: setup.missingField,
     processing: progress,
     processingPrepared: state.processingPrepared,
+    processingExported: state.processingExported,
+    transcriptionTaskCount: state.transcriptionPlan?.tasks?.length || 0,
+    transcriptionExported: state.transcriptionExported,
     transcriptLength,
+    transcriptRecoverable,
     analysis: analysis?.summary || null,
+    analysisPreserved: state.analysisPreserved,
     selectedRecommendationCount: state.selectedRecommendationIds.size,
     revisionDraft: state.revisionDraft,
     revisionConfirmed: state.revisionConfirmed,
+    revisionPreserved: state.revisionPreserved,
     handoffState: state.handoffState
   });
   state.flowModel = model;
@@ -247,6 +256,10 @@ function updateWorkbenchOverview() {
   const progressNode = $("#workbench-progress");
   progressNode.setAttribute("aria-valuenow", String(model.phase.progress));
   progressNode.setAttribute("aria-valuetext", `${model.phase.label}，完成 ${model.phase.progress}%`);
+  const deliveryNode = $("#workbench-delivery-state");
+  deliveryNode.dataset.tone = model.delivery.tone;
+  setNodeText("#workbench-delivery-label", model.delivery.label);
+  setNodeText("#workbench-delivery-detail", model.delivery.detail);
   const nextButton = $("#workbench-next-step");
   nextButton.dataset.action = model.next.type;
   nextButton.dataset.target = model.next.target;
@@ -327,6 +340,7 @@ $("#workbench-paste-entry").addEventListener("click", () => {
 });
 
 function workbenchResetSnapshot() {
+  const transcriptText = $("#transcript-text").value.trim();
   const hasSetupValues = Boolean(
     $("#material-source-root").value.trim()
     || $("#material-output-root").value.trim()
@@ -359,7 +373,8 @@ function workbenchResetSnapshot() {
     processingExported: state.processingExported,
     transcriptionTaskCount: state.transcriptionPlan?.tasks?.length || 0,
     transcriptionExported: state.transcriptionExported,
-    transcriptLength: $("#transcript-text").value.trim().length,
+    transcriptLength: transcriptText.length,
+    transcriptRecoverable: Boolean(state.transcriptDocument && transcriptDocumentMatchesText(state.transcriptDocument, transcriptText)),
     hasAnalysis: Boolean(state.analysis),
     analysisPreserved: state.analysisPreserved,
     hasRevisionDraft: Boolean(state.revisionDraft),
@@ -480,6 +495,12 @@ $("#reset-workbench-session").addEventListener("click", () => {
   }
   if (!window.confirm(resetPlan.message)) return;
   resetWorkbenchSession();
+});
+
+window.addEventListener("beforeunload", (event) => {
+  if (!hasWorkbenchUnloadRisk(workbenchResetSnapshot())) return;
+  event.preventDefault();
+  event.returnValue = "";
 });
 
 document.querySelectorAll("label.file-card[for]").forEach((trigger) => {
@@ -886,6 +907,7 @@ $("#export-transcription-plan").addEventListener("click", () => {
   download("qianchuan-local-transcription-tasks.json", JSON.stringify(state.transcriptionPlan, null, 2));
   state.transcriptionExported = true;
   setFeedback("#transcription-message", "#transcription-error", { status: "本地转写任务清单已导出；其中包含本机路径，请仅在可信设备保存。" });
+  updateWorkbenchOverview();
 });
 
 function setRevisionConfirmation(confirmed) {
@@ -1145,6 +1167,7 @@ $("#export-structure-json").addEventListener("click", () => {
     download("qianchuan-material-structure.json", JSON.stringify(state.analysis, null, 2));
     state.analysisPreserved = true;
     setFeedback("#structure-message", "#structure-error", { status: "JSON 结构分析已导出。" });
+    updateWorkbenchOverview();
   }
 });
 $("#export-structure-md").addEventListener("click", () => {
@@ -1152,6 +1175,7 @@ $("#export-structure-md").addEventListener("click", () => {
     download("qianchuan-material-structure.md", materialAnalysisToMarkdown(state.analysis), "text/markdown;charset=utf-8");
     state.analysisPreserved = true;
     setFeedback("#structure-message", "#structure-error", { status: "Markdown 结构分析已导出。" });
+    updateWorkbenchOverview();
   }
 });
 
@@ -1238,6 +1262,7 @@ $("#export-revision-json").addEventListener("click", () => {
     download(`${draft.testId}.json`, JSON.stringify(draft, null, 2));
     state.revisionPreserved = true;
     setFeedback("#revision-selection-message", "#revision-selection-error", { status: "可拍任务草稿 JSON 已导出。" });
+    updateWorkbenchOverview();
   } catch (error) {
     setFeedback("#revision-selection-message", "#revision-selection-error", { error: error.message || "无法导出草稿" });
   }
@@ -1249,6 +1274,7 @@ $("#export-revision-md").addEventListener("click", () => {
     download(`${draft.testId}.md`, creativeRevisionToMarkdown(draft), "text/markdown;charset=utf-8");
     state.revisionPreserved = true;
     setFeedback("#revision-selection-message", "#revision-selection-error", { status: "可拍任务草稿 Markdown 已导出。" });
+    updateWorkbenchOverview();
   } catch (error) {
     setFeedback("#revision-selection-message", "#revision-selection-error", { error: error.message || "无法导出草稿" });
   }
@@ -1322,6 +1348,7 @@ $("#export-analysis-handoff").addEventListener("click", () => {
       status: "备用 V2 JSON 交接包已导出：包含白名单可拍草稿，不含原始全文、文件名或本机路径；可在侧边栏手动导入。"
     });
     setFlowFeedback({ status: "备用 V2 JSON 交接包已导出；当前分析与草稿仍保留。" });
+    updateWorkbenchOverview();
   } catch (error) {
     const message = error.message || "无法生成编导台交接包";
     setFeedback("#structure-message", "#structure-error", { error: message });

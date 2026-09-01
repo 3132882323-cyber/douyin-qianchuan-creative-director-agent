@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   analyzeReport,
+  assessPlanShootReadiness,
   creativePlanDependencyFingerprint,
   creativePlanDependencySnapshot,
   generateCreativePlan,
@@ -13,6 +14,7 @@ import {
   parseCsvDocument,
   planToCsv,
   planToMarkdown,
+  planToRunSheet,
   resolveColumns,
   toMarkdown
 } from "../src/core.js";
@@ -117,6 +119,8 @@ test("generates editable production materials and export formats", () => {
   const analysis = analyzeReport(parseCsv(reportText), 1.5);
   const plan = generateCreativePlan(creativeTask, analysis, { testVariable: "sellingPoint", minSpend: 400 });
   const production = plan.items[0].production;
+  assert.equal(production.spokenScript.split("\n")[0], plan.items[0].hook);
+  assert.ok(plan.items.every((item) => item.production.spokenScript.split("\n")[0] === item.hook));
   assert.match(production.spokenScript, /夏日通勤真实体验/);
   assert.match(production.storyboard, /0-3秒/);
   assert.match(production.shootingTask, /测试编号/);
@@ -128,6 +132,45 @@ test("generates editable production materials and export formats", () => {
   assert.match(planToCsv(plan), /目标受众,钩子,核心主张/);
   assert.doesNotMatch(JSON.stringify(plan), /productName|category|promotion|productBrief|"brief"/u);
   assert.match(toMarkdown(analysis), /优先复盘素材/);
+});
+
+test("builds an on-set run sheet that keeps baseline-first single-variable discipline", () => {
+  const analysis = analyzeReport(parseCsv(reportText), 1.5);
+  const plan = generateCreativePlan(creativeTask, analysis, { testVariable: "hook", minSpend: 500 });
+  const full = planToRunSheet(plan);
+  assert.match(full, /千川现场开拍清单/u);
+  assert.match(full, /先拍基线，再按编号拍变体/u);
+  assert.match(full, /每条只替换本轮唯一变量/u);
+  assert.equal((full.match(/- 拍摄顺序：/gu) || []).length, plan.items.length);
+  assert.ok(full.indexOf(plan.items[0].id) < full.indexOf(plan.items[1].id));
+  assert.match(full, /现场必拍/u);
+  assert.match(full, /剪辑交付/u);
+  assert.match(full, /发布前检查/u);
+  const single = planToRunSheet(plan, { itemIndex: 2 });
+  assert.match(single, /千川单条开拍单/u);
+  assert.match(single, new RegExp(plan.items[2].id, "u"));
+  assert.doesNotMatch(single, new RegExp(plan.items[1].id, "u"));
+  assert.throws(() => planToRunSheet(plan, { itemIndex: 99 }), /任务序号/u);
+  assert.throws(() => planToRunSheet({ items: [] }), /可执行任务/u);
+});
+
+test("reports shoot-readiness gaps without changing the editable plan", () => {
+  const analysis = analyzeReport(parseCsv(reportText), 1.5);
+  const plan = generateCreativePlan(creativeTask, analysis, { testVariable: "scene", minSpend: 400 });
+  const original = structuredClone(plan);
+  const ready = assessPlanShootReadiness(plan);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.readyCount, plan.items.length);
+  assert.deepEqual(plan, original);
+
+  plan.items[1].hook = "待确认";
+  plan.items[1].production.editingNotes = "";
+  const incomplete = assessPlanShootReadiness(plan);
+  assert.equal(incomplete.ready, false);
+  assert.equal(incomplete.readyCount, plan.items.length - 1);
+  assert.equal(incomplete.missingCount, 2);
+  assert.deepEqual(incomplete.items[1].missing, ["前三秒钩子", "剪辑要求"]);
+  assert.throws(() => assessPlanShootReadiness({ items: [] }), /开拍准备检查/u);
 });
 
 test("generates without any task fields and only requires a completed review", () => {

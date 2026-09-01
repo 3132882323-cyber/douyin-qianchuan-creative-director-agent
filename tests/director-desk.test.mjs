@@ -9,7 +9,7 @@ function recent(kind = "plan-ready", overrides = {}) {
     description: "当前工作区有 3 个可继续检查的拍摄方案。",
     action: "继续检查任务",
     targetView: "next",
-    focusId: "copy-plan",
+    focusId: "copy-run-sheet",
     ...overrides
   };
 }

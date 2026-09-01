@@ -42,7 +42,7 @@ test("exposes the four director workspaces", () => {
 });
 
 test("guides the optional-task to review, generate and export flow", () => {
-  for (const id of ["workflow-progress", "workflow-progress-bar", "workflow-next-step", "workflow-next-action", "review-empty-state", "review-stale-notice", "plan-empty-state"]) {
+  for (const id of ["workflow-progress", "workflow-progress-bar", "workflow-next-step", "workflow-next-action", "review-empty-state", "review-stale-notice", "plan-empty-state", "plan-production-readiness"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(html, /role="tablist"/u);
@@ -54,9 +54,60 @@ test("guides the optional-task to review, generate and export flow", () => {
   assert.match(script, /requested\?\.disabled[\s\S]*aria-describedby/u);
   assert.match(html, /class="actions plan-export-actions"/u);
   assert.match(html, /<details class="more-exports">\s*<summary>更多导出<\/summary>/u);
-  for (const id of ["copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
+  for (const id of ["copy-run-sheet", "copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
+  assert.match(html, /id="copy-run-sheet"[^>]*class="primary"[^>]*>复制开拍清单</u);
+  assert.match(html, /id="copy-plan"[^>]*class="secondary"[^>]*>复制完整方案</u);
+  assert.match(html, /id="plan-shoot-order"/u);
+  assert.match(script, /planToRunSheet\(state\.plan\)/u);
+  assert.match(script, /assessPlanShootReadiness\(state\.plan\)/u);
+  assert.match(script, /function renderPlanShootReadiness\(\)/u);
+  assert.match(script, /buildDirectorMonitorCard\(state\.plan, \{ itemIndex: index \}\)/u);
+  assert.match(script, /directorMonitorCardToText\(monitor\)/u);
+  assert.match(script, /function renderDirectorMonitorReadiness\(\)/u);
+  assert.match(script, /复制前三秒监看卡/u);
+  assert.match(script, /首帧、口播、字幕与证据字段已齐/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorMonitorCardToText\(monitor\)\)/u);
+  for (const id of ["director-blind-review", "director-blind-review-state", "director-blind-review-summary", "copy-director-blind-review", "copy-director-blind-review-key", "copy-director-blind-review-decision", "director-blind-review-feedback"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /前三秒拍前盲审/u);
+  assert.match(html, /隐藏测试编号、基线身份、来源素材和历史指标/u);
+  assert.match(script, /function renderDirectorBlindReview\(\)/u);
+  assert.match(script, /buildDirectorBlindReview\(state\.plan\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewPackToText\(review\)\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewKeyToText\(review\)\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewDecisionSheetToText\(review\)\)/u);
+  assert.match(script, /请先收齐并锁定反馈，再揭示导演映射/u);
+  assert.match(script, /请先填回收事实，再在保留、单变量重写和淘汰中三选一/u);
+  for (const id of ["director-batch-board", "director-batch-board-state", "director-batch-board-summary", "copy-director-batch-board", "copy-director-edit-assembly", "director-batch-board-feedback"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /批次共用镜头板/u);
+  assert.match(html, /先拍并锁定 B00 全流程母版/u);
+  assert.match(script, /function renderDirectorBatchBoard\(\)/u);
+  assert.match(script, /buildDirectorBatchBoard\(state\.plan\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorBatchBoardToText\(board\)\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(directorBatchEditAssemblyToText\(board\)\)/u);
+  assert.match(script, /renderDirectorBlindReview\(\);\s*renderDirectorBatchBoard\(\);/u);
+  assert.match(script, /请先锁定 B00，再按场记编号拍/u);
+  assert.match(script, /请先锁定 B00 时间轴，再逐个替换/u);
+  assert.match(script, /当前开拍清单仍有 \$\{readiness\.missingCount\} 项待补/u);
+  assert.match(script, /if \(!window\.confirm\([\s\S]*是否仍要复制给现场/u);
+  assert.match(script, /先拍 \$\{firstItem\.id\} 基线，再按编号拍变体/u);
+  assert.match(script, /for \(const id of \["copy-run-sheet", "copy-plan", "export-plan-md"/u);
+  assert.match(script, /action\.dataset\.focusId = "copy-run-sheet"/u);
+  assert.match(css, /\.plan-export-actions \.more-exports\s*\{[^}]*grid-column:\s*1 \/ -1/iu);
+  assert.match(css, /\.plan-card-readiness\[data-ready="true"\]/u);
+  assert.match(css, /\.director-monitor-tools\s*\{[^}]*grid-template-columns/iu);
+  assert.match(css, /\.director-monitor-state\[data-ready="true"\]/u);
+  assert.match(css, /\.director-blind-review-actions\s*\{[^}]*grid-template-columns:\s*1fr 1fr/iu);
+  assert.match(css, /\.director-blind-review-summary/u);
+  assert.match(css, /\.director-blind-review-decision\s*\{[^}]*grid-column:\s*1 \/ -1/iu);
+  assert.match(css, /\.director-batch-board\s*\{[^}]*border:\s*1px solid/iu);
+  assert.match(css, /\.director-batch-board-actions\s*\{[^}]*grid-template-columns:\s*1fr 1fr/iu);
+  assert.match(css, /\.director-batch-board-action\s*\{[^}]*min-height:\s*34px/iu);
   assert.match(css, /\.more-export-actions/u);
 });
 
@@ -262,7 +313,8 @@ test("keeps one primary workbench entry above navigation and only a contextual l
   const masterIndex = html.indexOf('class="card master-panel"');
   const repairIndex = html.indexOf('id="image-repair-panel"');
   const videoProcessingIndex = html.indexOf('id="video-processing-entry"');
-  const updateIndex = html.indexOf('class="card update-center"');
+  const maintenanceIndex = html.indexOf('id="maintenance-center"');
+  const updateIndex = html.indexOf('class="maintenance-section update-center"');
   assert.ok(entryIndex > headerEndIndex && entryIndex < tabsIndex);
   assert.equal((html.match(/id="open-analysis-workbench"/gu) || []).length, 1);
   assert.equal((html.match(/href="workbench\.html"/gu) || []).length, 2);
@@ -271,9 +323,11 @@ test("keeps one primary workbench entry above navigation and only a contextual l
   assert.match(html, /编导决策台/u);
   assert.ok(masterIndex > libraryStatusIndex);
   assert.ok(videoProcessingIndex > repairIndex);
-  assert.ok(updateIndex > videoProcessingIndex);
+  assert.ok(maintenanceIndex > videoProcessingIndex);
+  assert.ok(updateIndex > maintenanceIndex);
   assert.match(html.slice(masterIndex, html.indexOf(">", masterIndex) + 1), /\bopen\b/u);
   assert.doesNotMatch(html.slice(repairIndex, html.indexOf(">", repairIndex) + 1), /\bopen\b/u);
+  assert.doesNotMatch(html.slice(maintenanceIndex, html.indexOf(">", maintenanceIndex) + 1), /\bopen\b/u);
   assert.doesNotMatch(html.slice(updateIndex, html.indexOf(">", updateIndex) + 1), /\bopen\b/u);
   assert.match(html, /id="library-empty-actions"/u);
   assert.match(html, /先导入历史素材/u);
@@ -301,6 +355,9 @@ test("wires a prioritized director desk without adding storage keys or automatic
 
 test("keeps production progress explicit, local and director-controlled", () => {
   assert.match(html, /id="production-stage-counts"/u);
+  for (const id of ["operator-batch-handoff", "operator-batch-title", "operator-batch-summary", "copy-operator-batch", "operator-batch-versions", "operator-batch-feedback"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
   for (const value of ["production_untracked", "production_planned", "production_shooting", "production_editing", "production_ready", "production_launched", "production_paused"]) {
     assert.match(html, new RegExp(`value="${value}"`, "u"));
   }
@@ -311,12 +368,76 @@ test("keeps production progress explicit, local and director-controlled", () => 
   assert.match(script, /setVersionProductionStatus/u);
   assert.match(script, /focusProduction: true/u);
   assert.match(script, /制作状态：\$\{productionStageLabel/u);
+  assert.match(script, /experimentCardActiveLayer/u);
+  assert.match(script, /assessOperatorHandoffReadiness/u);
+  assert.match(script, /buildOperatorSingleVariableDiff/u);
+  assert.match(script, /experimentVersionToOperatorCard/u);
+  assert.match(script, /buildLatestOperatorBatchHandoff/u);
+  assert.match(script, /latestOperatorBatchToText/u);
+  assert.match(script, /function renderOperatorHandoff\(entry, timeline\)/u);
+  assert.match(script, /function renderOperatorBatchHandoff\(timeline\)/u);
+  assert.match(script, /renderOperatorBatchHandoff\(timeline\)/u);
+  assert.match(script, /title: "制作与投放交接"/u);
+  assert.match(script, /children: \[renderProductionStatusControl\(entry\), renderOperatorHandoff\(entry, timeline\)\]/u);
+  assert.match(script, /当前投放交接仍有 \$\{readiness\.missing\.length\} 项待处理/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(experimentVersionToOperatorCard/u);
+  assert.match(script, /未创建计划、设置预算、改变制作状态或执行平台操作/u);
+  assert.match(script, /function renderExperimentCardLayer/u);
+  assert.match(script, /function activateExperimentCardLayer/u);
+  assert.match(script, /className: "version-production-layer"[\s\S]*open: activeLayer === "production"/u);
+  assert.match(script, /className: "version-result-layer"[\s\S]*open: activeLayer === "result"/u);
+  assert.match(script, /renderExperimentDecisionEditor\(entry, \{ open: activeLayer === "decision" \}\)/u);
+  assert.match(script, /activateExperimentCardLayer\(card, resultLayer\)[\s\S]*contentDiff\.open = true/u);
   assert.match(css, /\.production-overview/u);
+  assert.match(css, /\.version-layer\s*\{[^}]*border:[^}]*background:\s*#ffffff/iu);
+  assert.match(css, /\.version-layer-body\s*\{[^}]*display:\s*grid/iu);
   assert.match(css, /\.version-production/u);
   assert.match(css, /\.production-stage-select/u);
+  assert.match(css, /\.operator-handoff\s*\{[^}]*grid-template-columns/iu);
+  assert.match(css, /\.operator-handoff\[data-ready="true"\]/u);
+  assert.match(css, /\.operator-batch-handoff\s*\{[^}]*display:\s*grid/iu);
+  assert.match(css, /\.operator-batch-handoff\[data-ready="true"\]/u);
   const productionControl = script.slice(script.indexOf("function renderProductionStatusControl"), script.indexOf("function renderProductionOverview"));
   assert.match(productionControl, /select\.addEventListener\("change", async/u);
-  assert.doesNotMatch(productionControl, /importResults|generateCreativePlan|chrome\.storage/u);
+  assert.doesNotMatch(productionControl, /importResults|generateCreativePlan|chrome\.storage|createProductionStatus\([^)]*readiness/u);
+  const operatorControl = script.slice(script.indexOf("function renderOperatorHandoff"), script.indexOf("function renderProductionOverview"));
+  assert.match(operatorControl, /window\.confirm/u);
+  assert.doesNotMatch(operatorControl, /setVersionProductionStatus|setVersionDecision|importResults|generateCreativePlan|chrome\.storage/u);
+  const batchRender = script.slice(script.indexOf("function renderOperatorBatchHandoff"), script.indexOf("function currentExperimentTimeline"));
+  assert.match(batchRender, /batch\.entries/u);
+  assert.match(batchRender, /batch\.code === "too_large"/u);
+  assert.doesNotMatch(batchRender, /setVersionProductionStatus|setVersionDecision|importResults|generateCreativePlan|chrome\.storage/u);
+  const batchAction = script.slice(script.indexOf('$("#copy-operator-batch").addEventListener'), script.indexOf("function renderResultImportPreview"));
+  assert.match(batchAction, /window\.confirm/u);
+  assert.match(batchAction, /navigator\.clipboard\.writeText\(latestOperatorBatchToText/u);
+  assert.match(batchAction, /只写入剪贴板，未创建计划、设置预算、改变状态或执行平台操作/u);
+  assert.doesNotMatch(batchAction, /setVersionProductionStatus|setVersionDecision|importResults|generateCreativePlan|chrome\.storage/u);
+});
+
+test("creates a privacy-safe inspiration relay without exporting source material", () => {
+  for (const id of ["inspiration-relay", "inspiration-relay-state", "inspiration-relay-summary", "inspiration-relay-cards", "copy-inspiration-relay", "inspiration-relay-feedback"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /脱敏分享 · 不复制素材/u);
+  assert.match(html, /不包含项目名、测试编号、素材名、指标数值、完整脚本或具体品牌主张/u);
+  assert.match(script, /buildInspirationRelay/u);
+  assert.match(script, /inspirationCardToChallenge/u);
+  assert.match(script, /inspirationRelayToText/u);
+  assert.match(script, /function renderInspirationRelay\(timeline\)/u);
+  assert.match(script, /renderInspirationRelay\(timeline\)/u);
+  assert.match(css, /\.inspiration-relay\s*\{[^}]*border:[^}]*background:\s*#ffffff/iu);
+  assert.match(css, /\.inspiration-relay-cards\s*\{[^}]*grid-template-columns/iu);
+  const render = script.slice(script.indexOf("function renderInspirationRelay"), script.indexOf("function currentExperimentTimeline"));
+  assert.match(render, /card\.mechanismLabel/u);
+  assert.match(render, /card\.question/u);
+  assert.match(render, /复制共创挑战/u);
+  assert.match(render, /navigator\.clipboard\.writeText\(inspirationCardToChallenge\(card\)\)/u);
+  assert.match(render, /完成三路原创发散后再进入方案评审/u);
+  assert.doesNotMatch(render, /baselineCreative|planItem|metrics|spokenScript|state\.currentProject|chrome\.storage/u);
+  const action = script.slice(script.indexOf('$("#copy-inspiration-relay").addEventListener'), script.indexOf("function renderResultImportPreview"));
+  assert.match(action, /navigator\.clipboard\.writeText\(inspirationRelayToText/u);
+  assert.match(action, /不含项目、版本、素材、指标数值或完整脚本/u);
+  assert.doesNotMatch(action, /state\.currentProject|setVersionProductionStatus|setVersionDecision|importResults|generateCreativePlan|chrome\.storage/u);
 });
 
 test("ships a keyboard-ready roving tab state before JavaScript initializes", () => {
@@ -382,4 +503,10 @@ test("exposes an honest user-confirmed update center", () => {
   assert.match(script, /\$\("#task-migration-message"\)\.textContent/u);
   assert.match(script, /const rollbackPortfolio = await state\.projectRepository\.exportPortfolio\(\)/u);
   assert.match(script, /导入未完成，已恢复原项目集合和当前工作区/u);
+  assert.match(html, /id="maintenance-center"[^>]*class="card maintenance-center"/u);
+  assert.match(html, /<summary><span>维护与隐私<\/span><small>更新 · 备份 · 边界说明<\/small><\/summary>/u);
+  const maintenanceBlock = html.slice(html.indexOf('id="maintenance-center"'), html.indexOf("</section>", html.indexOf('id="maintenance-center"')));
+  for (const text of ["版本与更新", "导出工作区备份", "导入工作区备份", "隐私与产品边界"]) assert.match(maintenanceBlock, new RegExp(text, "u"));
+  assert.match(css, /\.maintenance-center\s*\{[^}]*border-style:\s*dashed/iu);
+  assert.match(css, /\.maintenance-stack\s*\{[^}]*display:\s*grid/iu);
 });

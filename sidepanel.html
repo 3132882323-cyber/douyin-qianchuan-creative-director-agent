@@ -319,11 +319,38 @@
           <div class="card plan-summary">
             <div><span>测试批次</span><strong id="plan-batch">—</strong></div>
             <div><span>基线素材</span><strong id="plan-baseline">—</strong></div>
-            <p>下面所有内容都可以直接编辑，修改会自动保存在当前浏览器。</p>
+            <p id="plan-shoot-order">先拍基线，再按编号拍变体；下面所有内容都可以直接编辑，修改会自动保存在当前浏览器。</p>
           </div>
+          <div id="plan-production-readiness" class="notice compact" role="status" aria-live="polite">生成并检查方案后，这里会列出是否具备现场执行所需内容。</div>
+          <details id="director-blind-review" class="director-blind-review">
+            <summary><span>前三秒拍前盲审</span><small id="director-blind-review-state">匿名打乱 · 反馈后揭晓</small></summary>
+            <div class="director-blind-review-body">
+              <p class="helper">隐藏测试编号、基线身份、来源素材和历史指标，只让评审者比较首帧、钩子、字幕与证据预期。请先锁定反馈，再单独查看导演映射。</p>
+              <p id="director-blind-review-summary" class="director-blind-review-summary">至少需要两条字段完整的同批方案。</p>
+              <div class="director-blind-review-actions">
+                <button id="copy-director-blind-review" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>复制匿名盲审包</button>
+                <button id="copy-director-blind-review-key" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>复制导演映射</button>
+                <button id="copy-director-blind-review-decision" type="button" class="secondary director-blind-review-decision" aria-describedby="director-blind-review-summary" disabled>复制盲审后导演合议单</button>
+              </div>
+              <p id="director-blind-review-feedback" class="director-blind-review-feedback" role="status" aria-live="polite"></p>
+            </div>
+          </details>
+          <details id="director-batch-board" class="director-batch-board">
+            <summary><span>批次共用镜头板</span><small id="director-batch-board-state">共用骨架 · 变量插拍</small></summary>
+            <div class="director-batch-board-body">
+              <p class="helper">先拍并锁定 B00 全流程母版，再只拍一次共用骨架、逐版本补变量插条。演员、机位、光线、证据条件或行动引导发生漂移时会停止导出。</p>
+              <p id="director-batch-board-summary" class="director-batch-board-summary">至少需要两条字段完整、变量唯一且固定项一致的同批方案。</p>
+              <div class="director-batch-board-actions">
+                <button id="copy-director-batch-board" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>复制拍摄镜头板</button>
+                <button id="copy-director-edit-assembly" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>复制剪辑装配单</button>
+              </div>
+              <p id="director-batch-board-feedback" class="director-batch-board-feedback" role="status" aria-live="polite"></p>
+            </div>
+          </details>
           <div id="plan-list" class="stack plan-list"></div>
           <div class="actions plan-export-actions">
-            <button id="copy-plan" type="button" class="primary" aria-describedby="copy-state">复制全部</button>
+            <button id="copy-run-sheet" type="button" class="primary" aria-describedby="copy-state plan-shoot-order">复制开拍清单</button>
+            <button id="copy-plan" type="button" class="secondary" aria-describedby="copy-state">复制完整方案</button>
             <details class="more-exports">
               <summary>更多导出</summary>
               <div class="more-export-actions">
@@ -349,6 +376,28 @@
             </div>
             <div id="production-stage-counts" class="production-stage-counts" aria-label="各制作状态版本数量"></div>
           </section>
+          <section id="operator-batch-handoff" class="operator-batch-handoff" aria-labelledby="operator-batch-title" hidden>
+            <div class="operator-batch-head">
+              <div>
+                <span>最新批次投放交接</span>
+                <strong id="operator-batch-title">等待测试批次</strong>
+                <p id="operator-batch-summary">生成版本后会按 B00 → A01 → A02 顺序核对整批投放条件。</p>
+              </div>
+              <button id="copy-operator-batch" type="button" class="secondary" aria-describedby="operator-batch-summary" disabled>复制整批交接包</button>
+            </div>
+            <div id="operator-batch-versions" class="operator-batch-versions" aria-label="最新批次各版本交接状态"></div>
+            <p id="operator-batch-feedback" class="operator-batch-feedback" role="status" aria-live="polite"></p>
+          </section>
+          <details id="inspiration-relay" class="inspiration-relay" hidden>
+            <summary><span>灵感接力</span><small id="inspiration-relay-state">脱敏分享 · 不复制素材</small></summary>
+            <div class="inspiration-relay-body">
+              <p class="helper">从最新批次抽象可迁移的创意机制，不包含项目名、测试编号、素材名、指标数值、完整脚本或具体品牌主张。</p>
+              <p id="inspiration-relay-summary" class="inspiration-relay-summary">等待可抽象的本地方案</p>
+              <div id="inspiration-relay-cards" class="inspiration-relay-cards" aria-label="脱敏创意灵感方向"></div>
+              <button id="copy-inspiration-relay" type="button" class="secondary" aria-describedby="inspiration-relay-summary" disabled>复制脱敏灵感包</button>
+              <p id="inspiration-relay-feedback" class="inspiration-relay-feedback" role="status" aria-live="polite"></p>
+            </div>
+          </details>
           <section id="experiment-next-action" class="experiment-next-action" aria-labelledby="experiment-next-action-title" hidden>
             <div>
               <span>实验下一步</span>
@@ -610,42 +659,47 @@
           <p class="helper">浏览器出于隐私保护不会把当前目录选择自动传到新标签页，请在工作台重新选择需要处理的视频。</p>
         </section>
 
-        <details class="card update-center">
-          <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
-          <div class="version-grid">
-            <article><span>当前版本</span><strong id="update-current-version">检测中</strong></article>
-            <article><span>最新 Release</span><strong id="update-latest-version">尚未检查</strong></article>
-          </div>
-          <div id="update-status" class="notice compact" role="status" aria-live="polite">加载已解压的扩展不会静默自更新。你可以安全检查新版本，再确认是否打开官方下载页。</div>
-          <p id="update-checked-at" class="helper">尚未连接 GitHub 检查版本。</p>
-          <label class="update-opt-in">
-            <input id="auto-update-check" type="checkbox">
-            <span><strong>打开侧边栏时自动检查</strong><small>最多每天一次；仅读取本项目 GitHub Release 版本信息，不下载或执行代码。</small></span>
-          </label>
-          <div class="actions update-actions">
-            <button id="check-extension-update" type="button" class="secondary" aria-describedby="update-status">检查新版本</button>
-            <button id="open-update-page" type="button" class="primary" aria-describedby="update-status" disabled>确认并打开下载页</button>
-            <button id="export-update-backup" type="button" class="secondary">导出工作区备份</button>
-            <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
-            <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
-          </div>
-          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.4.0 会同时备份本地项目、测试版本、人工制作状态、结果和人工决策。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
-          <details class="rollback-guide">
-            <summary><span>安装失败与回退方法</span></summary>
-            <ol>
-              <li>更新前复制当前扩展目录，并导出上方工作区备份。</li>
-              <li>下载 Release 后先检查版本说明；加载已解压模式需要人工替换原目录文件，再在扩展管理页点击“重新加载”。</li>
-              <li>若新版本无法打开，把备份文件恢复到原目录并再次“重新加载”；浏览器本地数据不会被版本检查修改。</li>
-            </ol>
-          </details>
-        </details>
+        <details id="maintenance-center" class="card maintenance-center">
+          <summary><span>维护与隐私</span><small>更新 · 备份 · 边界说明</small></summary>
+          <div class="maintenance-stack">
+            <details class="maintenance-section update-center">
+              <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
+              <div class="version-grid">
+                <article><span>当前版本</span><strong id="update-current-version">检测中</strong></article>
+                <article><span>最新 Release</span><strong id="update-latest-version">尚未检查</strong></article>
+              </div>
+              <div id="update-status" class="notice compact" role="status" aria-live="polite">加载已解压的扩展不会静默自更新。你可以安全检查新版本，再确认是否打开官方下载页。</div>
+              <p id="update-checked-at" class="helper">尚未连接 GitHub 检查版本。</p>
+              <label class="update-opt-in">
+                <input id="auto-update-check" type="checkbox">
+                <span><strong>打开侧边栏时自动检查</strong><small>最多每天一次；仅读取本项目 GitHub Release 版本信息，不下载或执行代码。</small></span>
+              </label>
+              <div class="actions update-actions">
+                <button id="check-extension-update" type="button" class="secondary" aria-describedby="update-status">检查新版本</button>
+                <button id="open-update-page" type="button" class="primary" aria-describedby="update-status" disabled>确认并打开下载页</button>
+                <button id="export-update-backup" type="button" class="secondary">导出工作区备份</button>
+                <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
+                <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
+              </div>
+              <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.4.0 会同时备份本地项目、测试版本、人工制作状态、结果和人工决策。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
+              <details class="rollback-guide">
+                <summary><span>安装失败与回退方法</span></summary>
+                <ol>
+                  <li>更新前复制当前扩展目录，并导出上方工作区备份。</li>
+                  <li>下载 Release 后先检查版本说明；加载已解压模式需要人工替换原目录文件，再在扩展管理页点击“重新加载”。</li>
+                  <li>若新版本无法打开，把备份文件恢复到原目录并再次“重新加载”；浏览器本地数据不会被版本检查修改。</li>
+                </ol>
+              </details>
+            </details>
 
-        <details class="card prose">
-          <summary><span>隐私与产品边界</span></summary>
-          <p>报表、创作任务、策略和文件指纹默认只在浏览器本地处理与保存。扩展不读取账号密码，也不拦截千川网络请求。</p>
-          <p>团队母版匹配不移除、破解、定位或规避平台暗水印。需要干净素材时，请回到团队自有原片或已授权工程重新制作。</p>
-          <button id="reopen-onboarding" type="button" class="secondary full">重新查看三步引导</button>
-          <a href="https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent" target="_blank" rel="noreferrer">查看开源仓库</a>
+            <details class="maintenance-section prose">
+              <summary><span>隐私与产品边界</span></summary>
+              <p>报表、创作任务、策略和文件指纹默认只在浏览器本地处理与保存。扩展不读取账号密码，也不拦截千川网络请求。</p>
+              <p>团队母版匹配不移除、破解、定位或规避平台暗水印。需要干净素材时，请回到团队自有原片或已授权工程重新制作。</p>
+              <button id="reopen-onboarding" type="button" class="secondary full">重新查看三步引导</button>
+              <a href="https://github.com/3132882323-cyber/douyin-qianchuan-creative-director-agent" target="_blank" rel="noreferrer">查看开源仓库</a>
+            </details>
+          </div>
         </details>
       </section>
     </main>
