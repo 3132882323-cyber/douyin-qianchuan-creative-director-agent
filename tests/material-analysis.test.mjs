@@ -67,11 +67,37 @@ test("builds only local standardization and fixed PCM audio extraction tasks", (
   assert.doesNotMatch(commandText, /douyin\.com|https?:|delogo|crop|filter_complex|metadata\s+-1/iu);
 });
 
+test("carries advanced MP4 settings into the local task while keeping analysis audio fixed", () => {
+  const manifest = materialManifest({
+    preset: "custom_bitrate",
+    resolution: "720p",
+    frameRate: "25",
+    videoBitrateKbps: 8500,
+    audioBitrateKbps: 320,
+    sampleRate: "44100",
+    outputSuffix: "_review"
+  });
+  const [videoTask, audioTask] = manifest.tasks;
+  assert.equal(manifest.processing.settings.preset, "custom_bitrate");
+  assert.equal(manifest.processing.settings.resolution, "720p");
+  assert.equal(manifest.processing.settings.frameRate, "25");
+  assert.equal(manifest.processing.settings.videoBitrateKbps, 8500);
+  assert.equal(manifest.processing.settings.audioBitrateKbps, 320);
+  assert.equal(manifest.processing.settings.sampleRate, "44100");
+  assert.match(videoTask.outputPath, /_review\.mp4$/u);
+  assert.equal(videoTask.ffmpegArguments[videoTask.ffmpegArguments.indexOf("-b:v") + 1], "8500k");
+  assert.equal(videoTask.ffmpegArguments[videoTask.ffmpegArguments.indexOf("-r") + 1], "25");
+  assert.equal(videoTask.ffmpegArguments[videoTask.ffmpegArguments.indexOf("-b:a") + 1], "320k");
+  assert.equal(videoTask.ffmpegArguments[videoTask.ffmpegArguments.indexOf("-ar") + 1], "44100");
+  assert.match(videoTask.ffmpegArguments[videoTask.ffmpegArguments.indexOf("-vf") + 1], /1280/u);
+  assert.deepEqual(audioTask.ffmpegArguments.slice(-8), ["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audioTask.outputPath]);
+});
+
 test("requires ownership authorization before creating material tasks", () => {
   assert.throws(() => materialManifest({ authorizationConfirmed: false }), /自有或已获得明确转码授权/);
 });
 
-test("applies stricter fail-closed video limits in the material workbench", () => {
+test("applies the unified fail-closed video limits in the material workbench", () => {
   assert.deepEqual(MATERIAL_VIDEO_BATCH_LIMITS, {
     maxFiles: 40,
     maxSingleFileBytes: 10 * 1024 ** 3,

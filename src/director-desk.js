@@ -20,8 +20,11 @@ const EXPERIMENT_PRIORITIES = Object.freeze({
   decision_ready: 88,
   metric_missing: 87,
   result_pending: 80,
+  production_unmarked: 78,
+  production_progress: 76,
   insufficient: 60,
   next_round_ready: 58,
+  production_paused: 30,
   complete_stopped: 35
 });
 

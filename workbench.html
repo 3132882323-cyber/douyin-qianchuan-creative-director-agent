@@ -21,7 +21,7 @@
     <main>
       <header class="hero">
         <div>
-          <p class="eyebrow">抖音千川素材编导 Agent · V1.3.0</p>
+          <p class="eyebrow">抖音千川素材编导 Agent · V1.4.0</p>
           <h1>素材处理与分析工作台</h1>
           <p>面向深度素材处理与分析：把自有原片安全地转成可复盘的本地音频与文案结构，不抓取平台视频，不调用云端转写。</p>
         </div>
@@ -40,20 +40,20 @@
           </div>
           <div class="overview-action">
             <button id="workbench-next-step" type="button" class="primary" data-action="choose-entry" aria-describedby="workbench-overview-summary workbench-next-hint" disabled>先选择一个开始方式</button>
-            <p id="workbench-next-hint">先选择“处理本地视频”或“分析已有转写”。</p>
+            <p id="workbench-next-hint">推荐已有转写直接分析；需要从原片开始时再处理本地视频。</p>
             <button id="workbench-paste-entry" type="button" class="overview-text-action" hidden>没有文本文件？直接粘贴转写</button>
             <button id="reset-workbench-session" type="button" class="overview-reset-action" aria-label="开始新一轮或重置当前工作台会话" aria-describedby="workbench-overview-summary workbench-reset-note">开始新一轮 / 重置本轮</button>
           </div>
         </div>
         <fieldset id="workbench-entry-mode" class="entry-mode" aria-describedby="workbench-entry-note">
           <legend>本轮从哪里开始？</legend>
-          <label>
-            <input id="workbench-entry-video" type="radio" name="workbench-entry-mode" value="video">
-            <span><strong>处理本地视频</strong><small>授权确认 → 本机任务 → 导入结果 → 转写与分析</small></span>
+          <label class="entry-recommended">
+            <input id="workbench-entry-transcript" type="radio" name="workbench-entry-mode" value="transcript">
+            <span><em>推荐 · 最快得到可拍结论</em><strong>分析已有转写</strong><small>直接导入或粘贴本地文本，跳过视频与 FFmpeg 配置</small></span>
           </label>
           <label>
-            <input id="workbench-entry-transcript" type="radio" name="workbench-entry-mode" value="transcript">
-            <span><strong>分析已有转写</strong><small>直接导入或粘贴本地文本，不要求先选择视频</small></span>
+            <input id="workbench-entry-video" type="radio" name="workbench-entry-mode" value="video">
+            <span><em>进阶 · 需要本机工具</em><strong>处理本地视频</strong><small>授权确认 → 本机任务 → 导入结果 → 转写与分析</small></span>
           </label>
         </fieldset>
         <p id="workbench-entry-note" class="entry-note">入口选择只在当前页面内生效。切换入口不会清空已选视频、任务、转写正文或分析结果。</p>
@@ -70,7 +70,7 @@
         <p id="workbench-reset-note" class="overview-session-note">顶部主操作会继续当前页面中的真实下一步。“开始新一轮”只在二次确认后重置本页，不删除本地原文件、侧边栏或浏览器本地工作区；视频选择、处理队列和转写正文仍只在本页保留，刷新或关闭页面后不会伪装成可恢复任务。</p>
       </section>
 
-      <div class="boundary" role="note">
+      <div id="video-source-boundary" class="boundary" role="note">
         <strong>先找自有母版</strong>
         <span>优先使用团队自有或已授权母版、原始工程。工作台不会请求、下载或解析抖音链接，不检测或移除暗水印、隐藏指纹、版权标记或来源标识。</span>
       </div>
@@ -120,6 +120,59 @@
           <article><b>2</b><strong>提取分析音频</strong><span>PCM 16-bit、16 kHz、单声道 WAV，供本地转写使用</span></article>
           <article><b>3</b><strong>导入执行结果</strong><span>逐项显示成功或失败原因，所有处理由本机 FFmpeg 完成</span></article>
         </div>
+        <details id="material-output-settings" class="instructions material-output-settings">
+          <summary><span>进阶输出设置</span><small>默认参数可直接使用</small></summary>
+          <div class="material-output-grid">
+            <label>MP4 H.264/AAC 预设
+              <select id="material-preset">
+                <option value="balanced">均衡（CRF 23）</option>
+                <option value="high_quality">高质量（CRF 18）</option>
+                <option value="compact">小体积（CRF 28）</option>
+                <option value="custom_bitrate">指定视频码率</option>
+              </select>
+            </label>
+            <label>分辨率
+              <select id="material-resolution">
+                <option value="keep">保持原分辨率</option>
+                <option value="1080p" selected>1080p 边界内等比缩放</option>
+                <option value="720p">720p 边界内等比缩放</option>
+                <option value="480p">480p 边界内等比缩放</option>
+              </select>
+            </label>
+            <label>帧率
+              <select id="material-frame-rate">
+                <option value="keep">保持原帧率</option>
+                <option value="24">24 fps</option>
+                <option value="25">25 fps</option>
+                <option value="30">30 fps</option>
+                <option value="50">50 fps</option>
+                <option value="60">60 fps</option>
+              </select>
+            </label>
+            <label>视频码率（kbps）
+              <input id="material-video-bitrate" type="number" min="300" max="100000" step="100" value="6000" disabled>
+            </label>
+            <label>音频码率（kbps）
+              <select id="material-audio-bitrate">
+                <option value="128">128</option>
+                <option value="192" selected>192</option>
+                <option value="256">256</option>
+                <option value="320">320</option>
+              </select>
+            </label>
+            <label>音频采样率
+              <select id="material-sample-rate">
+                <option value="keep">保持原采样率</option>
+                <option value="44100">44.1 kHz</option>
+                <option value="48000" selected>48 kHz</option>
+              </select>
+            </label>
+            <label>输出文件后缀
+              <input id="material-output-suffix" type="text" value="_analysis" maxlength="48">
+            </label>
+          </div>
+          <p class="help">这些参数只影响标准化 MP4；分析音频始终固定为 PCM 16-bit、16 kHz、单声道 WAV。输出不覆盖已有文件，并保留可复制的元数据与章节。</p>
+        </details>
         <button id="create-material-tasks" type="button" class="secondary wide" aria-describedby="material-readiness" aria-controls="processing-queue" aria-expanded="false" disabled>生成“标准化 + 音频提取”本地任务</button>
         <p id="material-readiness" class="help">还需选择视频、确认授权并填写输入与输出目录。</p>
         <p id="processing-message" class="status-message" role="status" aria-live="polite"></p>
@@ -199,7 +252,7 @@
         <section id="structure-result" aria-label="文案结构分析结果" hidden>
           <div class="score-card"><strong id="structure-score">0%</strong><span>结构覆盖</span><small id="structure-summary">—</small></div>
           <div id="coverage-grid" class="coverage-grid"></div>
-          <div class="result-head"><h3>分段标注</h3><div class="result-actions"><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">分析 Markdown</button></div></div>
+          <div class="result-head"><h3>分段标注</h3><details class="more-exports"><summary>更多导出</summary><div class="more-export-actions"><button id="export-structure-json" type="button" class="secondary">分析 JSON</button><button id="export-structure-md" type="button" class="secondary">分析 Markdown</button></div></details></div>
           <div id="structure-segments" class="segment-list"></div>
           <div class="result-head"><h3>规则提示</h3></div>
           <div id="structure-recommendations" class="recommendations"></div>
@@ -242,8 +295,13 @@
               <div class="revision-actions">
                 <button id="send-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note" disabled>发送草稿并打开编导台</button>
                 <button id="export-analysis-handoff" type="button" class="secondary" aria-describedby="structure-handoff-note" disabled>导出 V2 JSON 交接包</button>
-                <button id="export-revision-json" type="button" class="secondary">导出草稿 JSON</button>
-                <button id="export-revision-md" type="button" class="secondary">导出草稿 Markdown</button>
+                <details class="more-exports revision-more-exports">
+                  <summary>更多草稿导出</summary>
+                  <div class="more-export-actions">
+                    <button id="export-revision-json" type="button" class="secondary">导出草稿 JSON</button>
+                    <button id="export-revision-md" type="button" class="secondary">导出草稿 Markdown</button>
+                  </div>
+                </details>
               </div>
               <p id="structure-handoff-note" class="help">只有明确确认后才可发送。V2 交接只包含固定结构摘要、四类短建议与白名单草稿，不含原始全文、文件名、本机路径或视频信息；侧边栏只预览草稿，不会自动覆盖已有字段或创作方案。JSON 始终可作备用。</p>
             </section>

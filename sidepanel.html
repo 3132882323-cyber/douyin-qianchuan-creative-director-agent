@@ -10,7 +10,7 @@
     <header class="hero">
       <div class="brand-mark" aria-hidden="true">千</div>
       <div class="hero-copy">
-        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.3.0</p>
+        <p class="eyebrow">CREATIVE DIRECTOR AGENT · V1.4.0</p>
         <h1>抖音千川素材编导</h1>
         <p>编导决策台 · 从历史复盘到下一版可拍摄任务</p>
       </div>
@@ -322,11 +322,16 @@
             <p>下面所有内容都可以直接编辑，修改会自动保存在当前浏览器。</p>
           </div>
           <div id="plan-list" class="stack plan-list"></div>
-          <div class="actions four">
+          <div class="actions plan-export-actions">
             <button id="copy-plan" type="button" class="primary" aria-describedby="copy-state">复制全部</button>
-            <button id="export-plan-md" type="button" class="secondary" aria-describedby="copy-state">Markdown</button>
-            <button id="export-plan-csv" type="button" class="secondary" aria-describedby="copy-state">CSV</button>
-            <button id="export-plan-json" type="button" class="secondary" aria-describedby="copy-state">JSON</button>
+            <details class="more-exports">
+              <summary>更多导出</summary>
+              <div class="more-export-actions">
+                <button id="export-plan-md" type="button" class="secondary" aria-describedby="copy-state">Markdown</button>
+                <button id="export-plan-csv" type="button" class="secondary" aria-describedby="copy-state">CSV</button>
+                <button id="export-plan-json" type="button" class="secondary" aria-describedby="copy-state">JSON</button>
+              </div>
+            </details>
           </div>
           <p id="copy-state" class="success" role="status"></p>
         </section>
@@ -337,6 +342,13 @@
             <span id="version-count">0 个版本</span>
             <span id="result-count">0 条结果</span>
           </div>
+          <section class="production-overview" aria-labelledby="production-overview-title">
+            <div class="production-overview-head">
+              <strong id="production-overview-title">人工制作进度</strong>
+              <small>只认编导手动标记</small>
+            </div>
+            <div id="production-stage-counts" class="production-stage-counts" aria-label="各制作状态版本数量"></div>
+          </section>
           <section id="experiment-next-action" class="experiment-next-action" aria-labelledby="experiment-next-action-title" hidden>
             <div>
               <span>实验下一步</span>
@@ -350,7 +362,7 @@
               <label class="experiment-filter" for="version-filter"><span>状态</span>
                 <select id="version-filter" disabled>
                   <option value="all">全部状态</option>
-                  <option value="pending">待回填</option>
+                  <option value="pending">暂无结果（含未上线）</option>
                   <option value="insufficient">样本不足</option>
                   <option value="target_met">达到目标</option>
                   <option value="needs_review">需要复核</option>
@@ -361,6 +373,13 @@
                   <option value="decision_continue">结论：继续测试</option>
                   <option value="decision_keep">结论：保留方案</option>
                   <option value="decision_stop">结论：停止测试</option>
+                  <option value="production_untracked">制作：未标记</option>
+                  <option value="production_planned">制作：待拍</option>
+                  <option value="production_shooting">制作：拍摄中</option>
+                  <option value="production_editing">制作：剪辑中</option>
+                  <option value="production_ready">制作：待投放</option>
+                  <option value="production_launched">制作：已上线</option>
+                  <option value="production_paused">制作：已搁置</option>
                 </select>
               </label>
               <label class="experiment-filter" for="version-batch-filter"><span>测试批次</span>
@@ -450,7 +469,7 @@
           </section>
           <p id="experiment-result-status" class="success" role="status" aria-live="polite"></p>
           <p id="experiment-result-error" class="error" role="alert"></p>
-          <p class="helper"><strong>判断边界：</strong>状态只依据最低消耗、目标 ROI 与父版本的描述性对照，不预测投放结果，也不把单变量与结果差异自动认定为因果。人工决策必须填写理由；结果、目标 ROI、最低消耗或版本内容变化后，旧决策会自动标记为“需重新确认”。</p>
+          <p class="helper"><strong>判断边界：</strong>制作状态只由编导手动标记；系统不会根据方案生成、导出或结果文件推断是否拍摄、剪辑或上线。结果状态只依据最低消耗、目标 ROI 与父版本的描述性对照，不预测投放结果，也不把单变量与结果差异自动认定为因果。人工决策必须填写理由；结果、目标 ROI、最低消耗或版本内容变化后，旧决策会自动标记为“需重新确认”。</p>
         </details>
       </section>
 
@@ -467,13 +486,10 @@
             <div><strong id="asset-plan">0</strong><span>拍摄方案</span></div>
           </div>
           <div id="library-empty-actions" class="library-empty-actions" hidden>
-            <p>当前还没有复盘素材或下一版任务。可以先导入历史素材，或直接打开素材处理与分析工作台处理本地视频。</p>
-            <div class="actions">
-              <button type="button" class="secondary" data-nav="review">先导入历史素材</button>
-              <a class="primary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="处理本地素材（在素材处理与分析工作台的新标签页打开）">处理本地素材</a>
-            </div>
+            <p>当前还没有复盘素材或下一版任务。建议先导入历史素材；视频处理统一从下方独立工作台入口开始。</p>
+            <button type="button" class="secondary full" data-nav="review">先导入历史素材</button>
           </div>
-          <p class="helper">V1.3.0 可在当前浏览器保存多个编导项目、测试版本、结果和人工决策记录；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
+          <p class="helper">V1.4.0 可在当前浏览器保存多个编导项目、测试版本、人工制作状态、结果和人工决策记录；独立工作台的视频、转写和处理队列仍只在其当前页面会话中保留。</p>
         </div>
 
         <details class="card master-panel" open>
@@ -584,110 +600,15 @@
           </section>
         </details>
 
-        <details id="transcode-panel" class="card transcode-panel">
-          <summary><span>团队母版转码</span><small>本地 FFmpeg · 不上传</small></summary>
-          <div class="notice compact">仅处理团队自有或已获得明确授权的原片。浏览器不会执行转码，只生成受限任务与命令；由随项目提供的本地执行器在用户主动运行后调用 FFmpeg，再导入结果查看进度和失败原因。</div>
-          <label class="file-drop compact" for="transcode-files">
-            <strong>选择要转码的自有/授权原片</strong><small id="transcode-file-count">支持最多 100 个视频、合计 100 GB；也可从上方母版匹配结果加入</small>
-          </label>
-          <input id="transcode-files" type="file" accept="video/*,.mkv,.m4v,.mts,.m2ts" multiple hidden>
-
-          <label class="authorization-check">
-            <input id="transcode-authorization" type="checkbox">
-            <span><strong>我确认所选文件为团队自有或已获得明确转码授权的原片</strong><small>本功能只转换格式和编码，不检测、定位、移除或规避水印、来源标识与平台风控。</small></span>
-          </label>
-
-          <div id="transcode-selection-list" class="operation-list" aria-label="已选转码文件"></div>
-          <button id="clear-transcode-selection" type="button" class="secondary full" aria-describedby="transcode-button-help" disabled>清空当前选择</button>
-
-          <div class="transcode-grid">
-            <label class="input-block wide required">自有原片根目录
-              <input id="transcode-source-root" type="text" placeholder="例如 D:\品牌素材\自有原片">
-            </label>
-            <label class="input-block wide required">输出目录
-              <input id="transcode-output-root" type="text" placeholder="例如 D:\品牌素材\转码输出">
-            </label>
-            <p class="helper wide">浏览器不会暴露文件绝对路径，请按实际位置填写。输出默认不覆盖已有文件。</p>
-            <label class="input-block">MP4 H.264/AAC 预设
-              <select id="transcode-preset">
-                <option value="balanced">均衡（CRF 23）</option>
-                <option value="high_quality">高质量（CRF 18）</option>
-                <option value="compact">小体积（CRF 28）</option>
-                <option value="custom_bitrate">指定视频码率</option>
-              </select>
-            </label>
-            <label class="input-block">分辨率
-              <select id="transcode-resolution">
-                <option value="keep">保持原分辨率</option>
-                <option value="1080p">1080p 边界内等比缩放</option>
-                <option value="720p">720p 边界内等比缩放</option>
-                <option value="480p">480p 边界内等比缩放</option>
-              </select>
-            </label>
-            <label class="input-block">帧率
-              <select id="transcode-frame-rate">
-                <option value="keep">保持原帧率</option>
-                <option value="24">24 fps</option>
-                <option value="25">25 fps</option>
-                <option value="30">30 fps</option>
-                <option value="50">50 fps</option>
-                <option value="60">60 fps</option>
-              </select>
-            </label>
-            <label class="input-block">视频码率（kbps）
-              <input id="transcode-video-bitrate" type="number" min="300" max="100000" step="100" value="6000">
-            </label>
-            <label class="input-block">音频码率（kbps）
-              <select id="transcode-audio-bitrate">
-                <option value="128">128</option>
-                <option value="192" selected>192</option>
-                <option value="256">256</option>
-                <option value="320">320</option>
-              </select>
-            </label>
-            <label class="input-block">音频采样率
-              <select id="transcode-sample-rate">
-                <option value="keep">保持原采样率</option>
-                <option value="44100">44.1 kHz</option>
-                <option value="48000" selected>48 kHz</option>
-              </select>
-            </label>
-            <label class="input-block">输出文件后缀
-              <input id="transcode-output-suffix" type="text" value="_transcoded" maxlength="48">
-            </label>
-            <label class="input-block">FFmpeg 命令或路径
-              <input id="transcode-ffmpeg-path" type="text" value="ffmpeg" placeholder="ffmpeg 或 ffmpeg.exe 的完整路径">
-            </label>
+        <section id="video-processing-entry" class="card tool-migration" aria-labelledby="video-processing-entry-title">
+          <div>
+            <span class="eyebrow">统一工作流</span>
+            <h3 id="video-processing-entry-title">视频处理已移入独立工作台</h3>
+            <p>标准化转码、分析音频提取、执行结果导入与进阶输出参数现在共用一套任务队列，避免两处设置不一致。仍只处理团队自有或已授权原片，并保持更稳妥的 40 个文件 / 单文件 10 GB / 合计 40 GB 上限。</p>
           </div>
-          <p class="helper">输出固定为 MP4 / H.264 / AAC，并固定使用 <code>-map_metadata 0</code> 与 <code>-map_chapters 0</code> 保留可复制元数据和章节；不提供裁剪、模糊、清元数据或自定义滤镜。</p>
-          <button id="build-transcode-tasks" type="button" class="primary full" aria-describedby="transcode-button-help">生成本地转码任务</button>
-          <p id="transcode-button-help" class="helper">浏览器只生成待执行清单，不会在页面内转码；原始文件不会被覆盖。</p>
-          <p id="transcode-status" class="success" role="status" aria-live="polite"></p>
-          <p id="transcode-error" class="error" role="alert"></p>
-
-          <section id="transcode-queue" class="transcode-queue" hidden>
-            <div class="section-title"><h3>任务清单</h3><span id="transcode-progress-label" role="status" aria-live="polite">尚未生成</span></div>
-            <div id="transcode-progress" class="queue-progress" role="progressbar" aria-label="已导入的本机执行结果进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="尚未生成任务"><span id="transcode-progress-bar"></span></div>
-            <p id="transcode-queue-status" class="helper">浏览器仅生成任务；请在本机运行执行器后导入结果。</p>
-            <div id="transcode-task-list" class="stack"></div>
-            <div class="actions four transcode-actions">
-              <button id="copy-transcode-commands" type="button" class="secondary">复制全部命令</button>
-              <button id="export-transcode-manifest" type="button" class="primary">导出任务清单</button>
-              <button id="download-transcode-worker" type="button" class="secondary">下载本地执行器</button>
-              <button id="import-transcode-result" type="button" class="secondary">导入执行结果</button>
-              <input id="transcode-result-file" type="file" accept=".json,application/json" hidden>
-            </div>
-            <p class="helper">本机执行结果仅支持最大 2 MB 的 JSON；格式错误不会覆盖当前任务状态。</p>
-            <details class="rollback-guide">
-              <summary><span>本机执行方法</span></summary>
-              <ol>
-                <li>将任务清单与 <code>transcode-worker.ps1</code> 放在同一文件夹。</li>
-                <li>在该文件夹打开 PowerShell，执行：<code>powershell -NoProfile -File .\transcode-worker.ps1 -ManifestPath .\qianchuan-transcode-tasks.json</code></li>
-                <li>执行器会逐项显示进度并生成 <code>qianchuan-transcode-tasks.results.json</code>；回到扩展导入该结果文件。</li>
-              </ol>
-            </details>
-          </section>
-        </details>
+          <a class="secondary button-link" href="workbench.html" target="_blank" rel="noopener" aria-label="打开视频处理工作台（在新标签页打开）">打开视频处理工作台</a>
+          <p class="helper">浏览器出于隐私保护不会把当前目录选择自动传到新标签页，请在工作台重新选择需要处理的视频。</p>
+        </section>
 
         <details class="card update-center">
           <summary><span>版本与更新</span><small id="update-summary">本地安装 · 用户确认</small></summary>
@@ -708,7 +629,7 @@
             <button id="import-update-backup" type="button" class="secondary">导入工作区备份</button>
             <input id="update-backup-file" type="file" accept=".json,application/json" hidden>
           </div>
-          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.3.0 会同时备份本地项目、测试版本、结果和人工决策。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
+          <p class="helper">工作区备份支持最大 12 MB 的 JSON；V1.4.0 会同时备份本地项目、测试版本、人工制作状态、结果和人工决策。导入前会校验 schema 并再次确认覆盖，解析失败时保留当前工作区。</p>
           <details class="rollback-guide">
             <summary><span>安装失败与回退方法</span></summary>
             <ol>

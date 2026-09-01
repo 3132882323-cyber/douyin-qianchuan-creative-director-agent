@@ -22,6 +22,7 @@ const paths = {
   releaseSafety: "../src/release-safety.js",
   workspaceRecovery: "../src/workspace-recovery.js",
   workbenchOverview: "../src/workbench-overview.js",
+  operationGuard: "../src/operation-guard.js",
   recentWork: "../src/recent-work.js",
   analysisHandoff: "../src/analysis-handoff.js",
   analysisHandoffInbox: "../src/analysis-handoff-inbox.js",
@@ -35,29 +36,31 @@ const paths = {
   experimentComparison: "../src/experiment-comparison.js",
   creativeVersionDiff: "../src/creative-version-diff.js",
   directorDesk: "../src/director-desk.js",
+  productionStatus: "../src/production-status.js",
   idb: "../vendor/idb.js",
   idbLicense: "../vendor/idb.LICENSE.txt",
   readme: "../README.md",
   privacy: "../PRIVACY.md",
   changelog: "../CHANGELOG.md",
   checklist: "../docs/RELEASE_CHECKLIST.md",
+  productAudit: "../docs/PRODUCT_AUDIT.md",
   license: "../LICENSE"
 };
 
 const entries = await Promise.all(Object.entries(paths).map(async ([key, path]) => [key, await readFile(new URL(path, import.meta.url), "utf8")]));
 const files = Object.fromEntries(entries);
 
-test("keeps every user-visible V1.3 source version aligned", () => {
+test("keeps every user-visible V1.4 source version aligned", () => {
   const manifest = JSON.parse(files.manifest);
   const packageJson = JSON.parse(files.package);
-  assert.equal(manifest.version, "1.3.0");
-  assert.equal(packageJson.version, "1.3.0");
-  assert.match(files.sidepanelHtml, /V1\.3\.0/u);
-  assert.match(files.workbenchHtml, /V1\.3\.0/u);
-  assert.match(files.core, /version: "1\.3\.0"/u);
-  assert.match(files.transcode, /creatorVersion \|\| "1\.3\.0"/u);
-  assert.match(files.readme, /V1\.3\.0/u);
-  assert.match(files.changelog, /## \[1\.3\.0\]/u);
+  assert.equal(manifest.version, "1.4.0");
+  assert.equal(packageJson.version, "1.4.0");
+  assert.match(files.sidepanelHtml, /V1\.4\.0/u);
+  assert.match(files.workbenchHtml, /V1\.4\.0/u);
+  assert.match(files.core, /version: "1\.4\.0"/u);
+  assert.match(files.transcode, /creatorVersion \|\| "1\.4\.0"/u);
+  assert.match(files.readme, /V1\.4\.0/u);
+  assert.match(files.changelog, /## \[1\.4\.0\]/u);
 });
 
 test("pins a strict MV3 extension CSP without expanding permissions", () => {
@@ -79,7 +82,7 @@ test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
   assert.ok(checkedFiles.length >= 15);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/director-desk.js", "vendor/idb.js"]) {
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/operation-guard.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/director-desk.js", "src/production-status.js", "vendor/idb.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
 });
@@ -102,6 +105,7 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.releaseSafety,
     files.workspaceRecovery,
     files.workbenchOverview,
+    files.operationGuard,
     files.recentWork,
     files.analysisHandoff,
     files.analysisHandoffInbox,
@@ -115,6 +119,7 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.experimentComparison,
     files.creativeVersionDiff,
     files.directorDesk,
+    files.productionStatus,
     files.idb
   ].join("\n");
   assert.doesNotMatch(html, /<script[^>]+src=["']https?:/iu);
@@ -142,4 +147,7 @@ test("ships the open-source release, privacy and rollback handoff", () => {
   assert.match(files.checklist, /回退/u);
   assert.match(files.checklist, /npm test/u);
   assert.match(files.checklist, /npm run check/u);
+  assert.match(files.productAudit, /核心高价值/u);
+  assert.match(files.productAudit, /待合并或删除/u);
+  assert.match(files.productAudit, /不采集用户行为数据/u);
 });

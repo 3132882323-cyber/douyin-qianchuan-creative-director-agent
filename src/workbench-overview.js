@@ -93,6 +93,8 @@ export function buildWorkbenchOverview({
   const handoffFailed = confirmedRevision && handoffState === "failed";
   const selectedEntryMode = ["video", "transcript"].includes(entryMode) ? entryMode : "";
   const effectiveEntryMode = selectedEntryMode || (files || hasProcessing ? "video" : "");
+  const sourceOptional = selectedEntryMode === "transcript" && files === 0;
+  const processingOptional = selectedEntryMode === "transcript" && !hasProcessing;
   let entryNotice = "入口选择只在当前页面内生效。切换入口不会清空已选视频、任务、转写正文或分析结果。";
   if (selectedEntryMode === "video" && hasAnalysis) {
     entryNotice = "已切换到视频入口，但当前分析结果仍保留；顶部会先完成交接，避免把已完成工作隐藏或误标为未开始。";
@@ -116,11 +118,11 @@ export function buildWorkbenchOverview({
 
   const steps = {
     source: {
-      status: sourceReady ? "complete" : current === "source" ? "current" : "pending",
-      text: files ? `${files} 个 · ${sourceReady ? "已就绪" : "待补齐"}` : "待选择"
+      status: sourceReady ? "complete" : sourceOptional ? "optional" : current === "source" ? "current" : "pending",
+      text: files ? `${files} 个 · ${sourceReady ? "已就绪" : "待补齐"}` : sourceOptional ? "本轮跳过" : "待选择"
     },
     processing: {
-      status: processingComplete ? "complete" : processingAttention ? "attention" : current === "processing" ? "current" : "pending",
+      status: processingComplete ? "complete" : processingAttention ? "attention" : processingOptional ? "optional" : current === "processing" ? "current" : "pending",
       text: hasProcessing
         ? processingComplete
           ? `${completed}/${tasks} 已完成`
@@ -131,7 +133,7 @@ export function buildWorkbenchOverview({
               : processingPrepared
                 ? `${tasks} 项 · 清单已导出`
                 : `${tasks} 项待执行`
-        : "待生成"
+        : processingOptional ? "本轮跳过" : "待生成"
     },
     transcription: {
       status: characters ? "complete" : current === "transcription" ? "current" : "pending",
@@ -158,13 +160,13 @@ export function buildWorkbenchOverview({
     label: "选择开始方式",
     tone: "neutral",
     progress: 0,
-    guidance: "先选择“处理本地视频”或“分析已有转写”；选择只改变引导，不会上传或保存内容。"
+    guidance: "推荐已有转写直接进入分析；需要从原片开始时再选择本地视频处理。选择只改变引导，不会上传或保存内容。"
   };
   let next = {
     type: "choose-entry",
     target: "",
     control: "",
-    focus: "workbench-entry-video",
+    focus: "workbench-entry-transcript",
     label: "先选择一个开始方式",
     disabled: true
   };
@@ -243,7 +245,7 @@ export function buildWorkbenchOverview({
           ? 20
           : files
             ? 10
-            : 0;
+        : 5;
     phase = {
       id: "transcript-entry",
       label: "已有转写入口",

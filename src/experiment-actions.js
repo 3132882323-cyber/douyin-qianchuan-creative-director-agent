@@ -1,4 +1,5 @@
 import { experimentDataHealth } from "./experiment-decision.js";
+import { productionStageCode, productionStageLabel } from "./production-status.js";
 
 const PARENT_OUTCOME_LABELS = Object.freeze({ keep: "保留方案", continue: "继续测试" });
 const WARNING_FOCUS_FIELDS = Object.freeze({ roi_mismatch: "roi", ctr_mismatch: "ctr", cvr_mismatch: "cvr" });
@@ -9,11 +10,12 @@ export function buildExperimentVersionActions(entry = {}) {
   const warnings = Array.isArray(entry?.result?.qualityWarnings) ? entry.result.qualityWarnings : [];
   const decisionState = String(entry?.decisionState?.code || (entry?.version?.decision ? "current" : "missing"));
   const outcome = String(entry?.version?.decision?.outcome || "");
+  const productionStage = productionStageCode(entry?.version?.productionStatus);
   const parentEligible = decisionState === "current" && Object.hasOwn(PARENT_OUTCOME_LABELS, outcome);
   return {
     testId,
     result: {
-      label: !entry?.result ? "回填结果" : warnings.length ? "核对结果" : "更新结果",
+      label: !entry?.result ? productionStage === "launched" ? "回填结果" : "补录结果" : warnings.length ? "核对结果" : "更新结果",
       focusMetric: warnings.length ? WARNING_FOCUS_FIELDS[warnings[0]] || "roi" : "spend"
     },
     decision: {
@@ -26,6 +28,18 @@ export function buildExperimentVersionActions(entry = {}) {
       outcomeLabel: PARENT_OUTCOME_LABELS[outcome]
     } : null
   };
+}
+
+const PRODUCTION_PROGRESS_COPY = Object.freeze({
+  ready: { title: "确认待投放版本是否已经上线", actionLabel: "更新投放状态" },
+  editing: { title: "更新正在剪辑的版本进度", actionLabel: "更新剪辑状态" },
+  shooting: { title: "更新正在拍摄的版本进度", actionLabel: "更新拍摄状态" },
+  planned: { title: "推进待拍版本的制作状态", actionLabel: "更新制作状态" },
+  untracked: { title: "先标记版本的人工制作状态", actionLabel: "标记制作状态" }
+});
+
+function pendingWithoutDecision(timeline) {
+  return timeline.filter((entry) => entry?.decisionState?.code !== "current" && entry?.evaluation?.code === "pending");
 }
 
 function action(code, entry, values) {
@@ -113,15 +127,32 @@ export function buildExperimentNextAction(timeline = []) {
     });
   }
 
-  const pending = timeline.find((entry) => entry?.decisionState?.code !== "current" && entry?.evaluation?.code === "pending");
-  if (pending) {
-    return action("result_pending", pending, {
-      filter: "pending",
+  const pendingEntries = pendingWithoutDecision(timeline);
+  const launched = pendingEntries.find((entry) => productionStageCode(entry?.version?.productionStatus) === "launched");
+  if (launched) {
+    return action("result_pending", launched, {
+      filter: "production_launched",
       target: "manual_result",
       focusMetric: "spend",
       title: "回填最新上线结果",
-      description: `${pending.version.testId} 还没有结果；可直接手动回填一条，也可以继续导入 CSV / TSV。`,
+      description: `${launched.version.testId} 已由编导标记为“已上线”，但还没有结果；可手动回填，也可以导入 CSV / TSV。`,
       actionLabel: "快速回填"
+    });
+  }
+
+  const productionEntry = ["ready", "editing", "shooting", "planned", "untracked"]
+    .map((stage) => pendingEntries.find((entry) => productionStageCode(entry?.version?.productionStatus) === stage))
+    .find(Boolean);
+  if (productionEntry) {
+    const stage = productionStageCode(productionEntry.version.productionStatus);
+    const copy = PRODUCTION_PROGRESS_COPY[stage];
+    const currentLabel = productionStageLabel(productionEntry.version.productionStatus);
+    return action(stage === "untracked" ? "production_unmarked" : "production_progress", productionEntry, {
+      filter: `production_${stage}`,
+      target: "production",
+      title: copy.title,
+      description: `${productionEntry.version.testId} 当前为“${currentLabel}”；只有编导手动标记“已上线”后，行动台才会催回填结果。`,
+      actionLabel: copy.actionLabel
     });
   }
 
@@ -134,6 +165,17 @@ export function buildExperimentNextAction(timeline = []) {
       title: "样本仍未达到最低消耗",
       description: `${insufficient.version.testId} 暂不适合做结论；有新结果时再更新，避免提前宣布胜负。`,
       actionLabel: "更新最新结果"
+    });
+  }
+
+  const paused = pendingEntries.find((entry) => productionStageCode(entry?.version?.productionStatus) === "paused");
+  if (paused) {
+    return action("production_paused", paused, {
+      filter: "production_paused",
+      target: "timeline",
+      title: "当前无需要推进的上线版本",
+      description: `${paused.version.testId} 等待结果的版本已由编导标记为“已搁置”；系统不会继续催拍或催回填。`,
+      actionLabel: "查看已搁置版本"
     });
   }
 

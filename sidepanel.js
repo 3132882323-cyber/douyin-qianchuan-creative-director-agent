@@ -24,14 +24,7 @@ import {
   shouldAutoCheck,
   validateUpdateSnapshot
 } from "./src/update.js";
-import {
-  LOCAL_VIDEO_BATCH_LIMITS,
-  createTranscodeManifest,
-  isSupportedVideoFile,
-  transcodeProgress,
-  validateLocalVideoBatch,
-  validateTranscodeResult
-} from "./src/transcode.js";
+import { isSupportedVideoFile } from "./src/transcode.js";
 import { MASTER_MATCH_LIMITS, formatLocalBytes, validateMasterMatchSelection } from "./src/local-file-guard.js";
 import {
   IMAGE_REPAIR_LIMITS,
@@ -88,6 +81,12 @@ import { buildExperimentView, experimentBatchOptions } from "./src/experiment-vi
 import { buildExperimentParentComparison } from "./src/experiment-comparison.js";
 import { buildCreativeVersionDiff } from "./src/creative-version-diff.js";
 import { buildDirectorDesk } from "./src/director-desk.js";
+import {
+  PRODUCTION_STAGE_DEFINITIONS,
+  createProductionStatus,
+  productionStageLabel,
+  summarizeProductionTimeline
+} from "./src/production-status.js";
 
 const $ = (selector) => document.querySelector(selector);
 const STORAGE_KEYS = ["creativeTask", "productBrief", "targetRoi", "lastAnalysis", "creativePlan", "planExportReceipt", "updateSettings", "lastUpdateCheck", "migrationNoticePending", "onboardingDismissed"];
@@ -137,9 +136,7 @@ const state = {
     activeStroke: null,
     tool: "brush",
     loadSequence: 0
-  },
-  transcodeFiles: [],
-  transcodeManifest: null
+  }
 };
 let taskSaveTimer = null;
 let planSaveTimer = null;
@@ -314,8 +311,10 @@ function renderProjectHub() {
   setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 今日编导行动台` : "今日编导行动台 · 仅本地");
 }
 
-function metricText(result) {
-  if (!result) return "尚未回填结果";
+function metricText(result, productionStatus = null) {
+  if (!result) return productionStatus?.stage === "launched"
+    ? "已上线 · 尚未回填结果"
+    : `制作状态：${productionStageLabel(productionStatus)} · 暂无投放结果`;
   const metrics = result.metrics;
   const parts = [`消耗 ¥${formatMoney(metrics.spend)}`];
   if (Number.isFinite(metrics.roi)) parts.push(`ROI ${metrics.roi.toFixed(2)}`);
@@ -323,6 +322,15 @@ function metricText(result) {
   if (Number.isFinite(metrics.cvr)) parts.push(`CVR ${(metrics.cvr * 100).toFixed(2)}%`);
   if (result.qualityWarnings?.length) parts.push(`口径提醒 ${result.qualityWarnings.length}`);
   return parts.join(" · ");
+}
+
+function versionEvaluationLabel(entry) {
+  if (entry?.evaluation?.code !== "pending") return entry?.evaluation?.label || "状态未知";
+  const stage = entry.version?.productionStatus?.stage || "untracked";
+  if (stage === "launched") return "待回填";
+  if (stage === "paused") return "已搁置";
+  if (stage === "untracked") return "制作未标记";
+  return productionStageLabel(entry.version.productionStatus);
 }
 
 function decisionTimeLabel(value) {
@@ -451,7 +459,7 @@ function renderManualResultOptions(timeline) {
   const previous = select.value;
   select.replaceChildren();
   for (const entry of timeline) {
-    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}${entry.result ? " · 已有结果" : ""}`);
+    const option = element("option", "", `${entry.version.testId} · 制作 ${productionStageLabel(entry.version.productionStatus)} · ${versionEvaluationLabel(entry)}${entry.result ? " · 已有结果" : ""}`);
     option.value = entry.version.testId;
     select.append(option);
   }
@@ -549,7 +557,7 @@ function renderParentVersionRecommendation(timeline) {
   setNodeText("#parent-version-recommendation-description", `${time}。系统只提供快捷选择，不会自动生成、宣布胜负或改变旧版本。`);
 }
 
-function focusExperimentVersion(testId, { openDecision = false, openContentDiff = false } = {}) {
+function focusExperimentVersion(testId, { openDecision = false, openContentDiff = false, focusProduction = false } = {}) {
   const card = [...document.querySelectorAll(".version-item")].find((entry) => entry.dataset.testId === testId);
   if (!card) return false;
   if (openDecision) {
@@ -565,6 +573,11 @@ function focusExperimentVersion(testId, { openDecision = false, openContentDiff 
     const target = contentDiff?.querySelector("summary") || card;
     if (target === card) card.tabIndex = -1;
     focusAndReveal(target);
+    return true;
+  }
+  if (focusProduction) {
+    const production = card.querySelector(".production-stage-select");
+    focusAndReveal(production || card);
     return true;
   }
   card.tabIndex = -1;
@@ -725,6 +738,72 @@ function renderExperimentDecisionEditor(entry) {
   return details;
 }
 
+function renderProductionStatusControl(entry) {
+  const testId = entry.version.testId;
+  const status = entry.version.productionStatus;
+  const section = element("section", "version-production");
+  section.dataset.productionStage = status?.stage || "untracked";
+  const copy = element("div", "version-production-copy");
+  copy.append(
+    element("strong", "", `人工制作状态 · ${productionStageLabel(status)}`),
+    element("small", "", status?.updatedAt
+      ? `编导更新于 ${decisionTimeLabel(status.updatedAt)}`
+      : "尚未标记；系统不会根据导出或结果自动推断。")
+  );
+  const label = element("label", "production-stage-field");
+  label.append(element("span", "", "更新状态"));
+  const select = element("select", "production-stage-select");
+  select.setAttribute("aria-label", `${testId}：人工制作状态`);
+  select.append(new Option("未标记（清除状态）", ""));
+  for (const definition of PRODUCTION_STAGE_DEFINITIONS) select.append(new Option(definition.label, definition.code));
+  select.value = status?.stage || "";
+  select.disabled = !state.projectRepository || !state.currentProject;
+  label.append(select);
+  const feedback = element("small", "production-stage-feedback");
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+  select.addEventListener("change", async () => {
+    if (!state.projectRepository || !state.currentProject) return;
+    const previousStage = status?.stage || "";
+    const nextStage = select.value;
+    select.disabled = true;
+    feedback.textContent = "正在保存到当前浏览器…";
+    try {
+      const nextStatus = nextStage ? createProductionStatus(nextStage) : null;
+      await state.projectRepository.setVersionProductionStatus(state.currentProject.id, testId, nextStatus);
+      await refreshCurrentProjectRecord();
+      await refreshExperimentLoop();
+      setFeedback("#experiment-result-status", "#experiment-result-error", {
+        status: nextStatus
+          ? `${testId} 已由编导标记为“${productionStageLabel(nextStatus)}”；系统未执行其他操作。`
+          : `${testId} 的人工制作状态已清除；当前恢复为“未标记”。`
+      });
+    } catch (error) {
+      select.value = previousStage;
+      select.disabled = false;
+      feedback.textContent = error.message || "人工制作状态未能保存";
+    }
+  });
+  section.append(copy, label, feedback);
+  return section;
+}
+
+function renderProductionOverview(timeline) {
+  const summary = summarizeProductionTimeline(timeline);
+  const container = $("#production-stage-counts");
+  container.replaceChildren();
+  const definitions = [{ code: "untracked", label: "未标记" }, ...PRODUCTION_STAGE_DEFINITIONS];
+  for (const definition of definitions) {
+    const item = element("span", "production-stage-count");
+    item.dataset.productionStage = definition.code;
+    item.append(
+      element("strong", "", String(summary.counts[definition.code] || 0)),
+      element("small", "", definition.label)
+    );
+    container.append(item);
+  }
+}
+
 function currentExperimentTimeline() {
   return buildVersionTimeline(state.versions, state.experimentResults, Number($("#target-roi").value || 1.5));
 }
@@ -776,7 +855,7 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
     const head = element("div", "version-item-head");
     const title = element("span");
     title.append(element("strong", "", entry.version.testId), element("small", "", entry.version.parentVersionId ? `父版本 ${entry.version.parentVersionId}` : "新测试起点"));
-    const badge = element("b", "version-result-badge", entry.evaluation.label);
+    const badge = element("b", "version-result-badge", versionEvaluationLabel(entry));
     badge.dataset.resultState = entry.evaluation.code;
     head.append(title, badge);
     const dataHealth = experimentDataHealth({ result: entry.result, evaluation: entry.evaluation });
@@ -804,10 +883,11 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
     card.append(
       head,
       element("p", "", `${entry.version.primaryVariable} · 基线 ${entry.version.baselineCreative || "未填写"}`),
-      element("p", "", metricText(entry.result)),
+      element("p", "", metricText(entry.result, entry.version.productionStatus)),
       element("small", `version-data-health${dataHealth.ready ? " ready" : ""}`, `数据健康：${dataHealth.label}`),
       ...(entry.result?.qualityWarnings?.length ? [element("small", "version-quality-warning", `需核对：${entry.result.qualityWarnings.map(experimentQualityWarningLabel).join("；")}`)] : []),
       element("small", "", entry.evaluation.detail),
+      renderProductionStatusControl(entry),
       ...(contentDiff ? [contentDiff] : []),
       ...(parentComparison ? [parentComparison] : []),
       quickActions,
@@ -820,12 +900,14 @@ function renderExperimentVersionBrowser(timeline, { refreshBatches = false } = {
 function renderExperimentLoop() {
   const timeline = currentExperimentTimeline();
   const summary = summarizeExperimentTimeline(timeline);
+  const launchedPending = timeline.filter((entry) => entry.evaluation.code === "pending" && entry.version.productionStatus?.stage === "launched").length;
   setNodeText("#version-count", `${timeline.length} 个版本`);
   setNodeText("#result-count", `${state.experimentResults.length} 条结果`);
   setNodeText("#experiment-summary", timeline.length
-    ? `待回填 ${summary.pending} · 样本不足 ${summary.insufficient} · 达标 ${summary.targetMet} · 需复核 ${summary.needsReview} · 人工决策 ${summary.currentDecisions} · 待重审 ${summary.staleDecisions} · 已回填消耗 ¥${formatMoney(summary.totalSpend)}`
+    ? `已上线待回填 ${launchedPending} · 已有结果 ${summary.withResult} · 样本不足 ${summary.insufficient} · 达标 ${summary.targetMet} · 需复核 ${summary.needsReview} · 人工决策 ${summary.currentDecisions} · 待重审 ${summary.staleDecisions} · 已回填消耗 ¥${formatMoney(summary.totalSpend)}`
     : "尚无测试版本；生成下一版任务后会自动建立实验台账。");
   renderExperimentNextAction(timeline);
+  renderProductionOverview(timeline);
   renderManualResultOptions(timeline);
   renderExperimentVersionBrowser(timeline, { refreshBatches: true });
   $("#export-experiment-csv").disabled = !timeline.length;
@@ -840,7 +922,7 @@ function renderExperimentLoop() {
     const decisionSuffix = entry.decisionState.code === "current"
       ? ` · 人工：${EXPERIMENT_DECISION_OUTCOME_LABELS[entry.version.decision.outcome]}`
       : entry.decisionState.code === "stale" ? " · 人工决策待重审" : "";
-    const option = element("option", "", `${entry.version.testId} · ${entry.evaluation.label}${decisionSuffix}`);
+    const option = element("option", "", `${entry.version.testId} · ${versionEvaluationLabel(entry)}${decisionSuffix}`);
     option.value = entry.version.testId;
     parentSelect.append(option);
   }
@@ -927,10 +1009,12 @@ function runExperimentAction(next) {
     return selectParentVersion(next.testId);
   }
   resetExperimentBrowse(next.filter);
+  $("#version-search").value = next.testId;
   renderExperimentLoop();
   if (next.target === "manual_result") {
     return openManualResultForVersion(next.testId, { focusMetric: next.focusMetric });
   }
+  if (next.target === "production") return focusExperimentVersion(next.testId, { focusProduction: true });
   return focusExperimentVersion(next.testId, { openDecision: next.target === "decision" });
 }
 
@@ -1026,12 +1110,11 @@ function hasTransientProjectWork() {
     (state.document && state.reviewPending)
     || state.matchOperation.running
     || state.imageRepair.file
-    || state.transcodeFiles.length
   );
 }
 
 async function prepareProjectTransition() {
-  if (hasTransientProjectWork() && !window.confirm("切换项目会刷新侧边栏。未完成的报表标签编辑、素材匹配、图片修复或转码队列只存在于当前页面，会被清空；已完成复盘、创作任务和方案会保留。是否继续？")) return false;
+  if (hasTransientProjectWork() && !window.confirm("切换项目会刷新侧边栏。未完成的报表标签编辑、素材匹配或图片修复只存在于当前页面，会被清空；已完成复盘、创作任务和方案会保留。是否继续？")) return false;
   if (taskSaveTimer) {
     clearTimeout(taskSaveTimer);
     taskSaveTimer = null;
@@ -2698,14 +2781,16 @@ function renderMatches(data) {
     const candidateVideos = candidateFiles.filter(isSupportedVideoFile);
     const candidateImages = candidateFiles.filter(isRepairImageCandidate);
     if (candidateVideos.length) {
-      const addButton = element("button", "secondary full", "将候选团队母版加入转码队列");
-      addButton.type = "button";
-      addButton.addEventListener("click", () => {
-        addTranscodeFiles(candidateVideos);
-        $("#transcode-panel").open = true;
-        $("#transcode-panel").scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+      const workbenchButton = element("button", "secondary full", "在独立工作台处理候选视频");
+      workbenchButton.type = "button";
+      workbenchButton.addEventListener("click", () => {
+        const opened = window.open(chrome.runtime.getURL("workbench.html"), "_blank", "noopener");
+        if (opened) opened.opener = null;
+        setFeedback("#match-status", "#match-error", opened
+          ? { status: "视频处理工作台已打开。浏览器不会跨标签传递本地文件，请重新选择已核对的团队母版。" }
+          : { error: "浏览器未能打开视频处理工作台；请使用页面顶部入口重试。" });
       });
-      card.append(addButton);
+      card.append(workbenchButton);
     }
     if (candidateImages.length) {
       const inspectButton = element("button", "secondary full", "优先检查候选团队母版图片");
@@ -3098,257 +3183,6 @@ $("#export-repaired-image").addEventListener("click", () => {
   }
 });
 syncRepairExportControls();
-
-const transcodeInput = $("#transcode-files");
-
-function transcodeFileIdentity(file) {
-  return `${file.webkitRelativePath || file.name}|${file.size}|${file.lastModified}`;
-}
-
-function refreshTranscodeSelection() {
-  const count = state.transcodeFiles.length;
-  const totalBytes = state.transcodeFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
-  $("#transcode-file-count").textContent = count ? `已加入 ${count} 个自有/授权视频 · ${formatLocalBytes(totalBytes)}` : "支持最多 100 个视频、合计 100 GB；也可从上方母版匹配结果加入";
-  const list = $("#transcode-selection-list");
-  list.replaceChildren();
-  state.transcodeFiles.forEach((file) => {
-    const row = element("div", "operation-item");
-    row.append(element("span", "", file.webkitRelativePath || file.name), element("strong", "", `${formatLocalBytes(file.size)} · 待生成任务`));
-    list.append(row);
-  });
-  if (!count) list.append(element("p", "empty-inline", "尚未选择视频。浏览器不会自动读取本地目录。"));
-  $("#clear-transcode-selection").disabled = !count;
-  updateTranscodeReadiness();
-}
-
-function markTranscodeDirty() {
-  if (state.transcodeManifest) {
-    state.transcodeManifest = null;
-    $("#transcode-queue").hidden = true;
-    setFeedback("#transcode-status", "#transcode-error", { status: "文件或参数已改变，旧任务清单已失效，请重新生成。" });
-  }
-  updateTranscodeReadiness();
-}
-
-function addTranscodeFiles(files) {
-  const incoming = [...files];
-  if (!incoming.length) return false;
-  const supported = incoming.filter(isSupportedVideoFile);
-  const previousCount = state.transcodeFiles.length;
-  if (supported.length !== incoming.length) {
-    setFeedback("#transcode-status", "#transcode-error", { error: `所选内容包含 ${incoming.length - supported.length} 个不支持的文件，本次没有加入任何文件。` });
-    return false;
-  }
-  const known = new Set(state.transcodeFiles.map(transcodeFileIdentity));
-  const nextFiles = [...state.transcodeFiles];
-  for (const file of supported) {
-    const identity = transcodeFileIdentity(file);
-    if (!known.has(identity)) {
-      known.add(identity);
-      nextFiles.push(file);
-    }
-  }
-  if (!supported.length && incoming.length) {
-    setFeedback("#transcode-status", "#transcode-error", { error: "所选文件中没有可识别的视频原片。" });
-    return false;
-  }
-  try {
-    validateLocalVideoBatch(nextFiles, LOCAL_VIDEO_BATCH_LIMITS);
-  } catch (error) {
-    setFeedback("#transcode-status", "#transcode-error", { error: error.message || "所选视频超过本地任务保护上限" });
-    return false;
-  }
-  state.transcodeFiles = nextFiles;
-  const added = nextFiles.length - previousCount;
-  const selectionMessage = added
-    ? `${added} 个视频已加入当前选择。`
-    : "所选视频已在当前选择中，没有重复加入。";
-  setFeedback("#transcode-status", "#transcode-error", { status: selectionMessage });
-  markTranscodeDirty();
-  refreshTranscodeSelection();
-  return true;
-}
-
-transcodeInput.addEventListener("change", (event) => {
-  addTranscodeFiles(event.target.files);
-  event.target.value = "";
-});
-
-$("#clear-transcode-selection").addEventListener("click", () => {
-  if (!state.transcodeFiles.length || !window.confirm("将清空当前浏览器会话中的转码文件选择和待执行清单。原始文件不会被删除。是否继续？")) {
-    setFeedback("#transcode-status", "#transcode-error", { status: "已取消清空，当前转码选择保持不变。" });
-    return;
-  }
-  state.transcodeFiles = [];
-  state.transcodeManifest = null;
-  $("#transcode-queue").hidden = true;
-  setFeedback("#transcode-status", "#transcode-error", { status: "当前浏览器内的转码选择与待执行清单已清空；原始文件未被修改。" });
-  refreshTranscodeSelection();
-});
-
-const transcodeSettingIds = [
-  "transcode-authorization", "transcode-source-root", "transcode-output-root", "transcode-preset",
-  "transcode-resolution", "transcode-frame-rate", "transcode-video-bitrate", "transcode-audio-bitrate",
-  "transcode-sample-rate", "transcode-output-suffix", "transcode-ffmpeg-path"
-];
-transcodeSettingIds.forEach((id) => $(`#${id}`).addEventListener("input", markTranscodeDirty));
-
-function updateTranscodeReadiness() {
-  const missing = [];
-  if (!state.transcodeFiles.length) missing.push("选择至少一个视频");
-  if (!$("#transcode-authorization").checked) missing.push("确认素材授权");
-  if (!$("#transcode-source-root").value.trim()) missing.push("填写原片根目录");
-  if (!$("#transcode-output-root").value.trim()) missing.push("填写输出目录");
-  let validationError = "";
-  if (state.transcodeFiles.length) {
-    try {
-      validateLocalVideoBatch(state.transcodeFiles, LOCAL_VIDEO_BATCH_LIMITS);
-    } catch (error) {
-      validationError = error.message || "当前选择超过本地任务保护上限";
-    }
-  }
-  const reason = validationError || (missing.length ? `还需：${missing.join("、")}。` : "已就绪：点击后只生成本机待执行任务，不会在浏览器中转码。");
-  $("#build-transcode-tasks").disabled = missing.length > 0 || Boolean(validationError);
-  setNodeText("#transcode-button-help", reason);
-}
-
-function syncTranscodePreset() {
-  const preset = $("#transcode-preset").value;
-  const defaults = {
-    balanced: { audio: "192" },
-    high_quality: { audio: "256" },
-    compact: { audio: "128" },
-    custom_bitrate: { audio: "192" }
-  };
-  $("#transcode-audio-bitrate").value = defaults[preset].audio;
-  $("#transcode-video-bitrate").disabled = preset !== "custom_bitrate";
-  markTranscodeDirty();
-}
-$("#transcode-preset").addEventListener("change", syncTranscodePreset);
-syncTranscodePreset();
-refreshTranscodeSelection();
-
-function readTranscodeSettings() {
-  return {
-    authorizationConfirmed: $("#transcode-authorization").checked,
-    sourceRoot: $("#transcode-source-root").value,
-    outputRoot: $("#transcode-output-root").value,
-    preset: $("#transcode-preset").value,
-    resolution: $("#transcode-resolution").value,
-    frameRate: $("#transcode-frame-rate").value,
-    videoBitrateKbps: $("#transcode-video-bitrate").value,
-    audioBitrateKbps: $("#transcode-audio-bitrate").value,
-    sampleRate: $("#transcode-sample-rate").value,
-    outputSuffix: $("#transcode-output-suffix").value,
-    ffmpegExecutable: $("#transcode-ffmpeg-path").value
-  };
-}
-
-function renderTranscodeQueue() {
-  const manifest = state.transcodeManifest;
-  if (!manifest) {
-    $("#transcode-queue").hidden = true;
-    return;
-  }
-  const progress = transcodeProgress(manifest.tasks);
-  setNodeText("#transcode-progress-label", `${progress.finished}/${progress.total} 已结束 · ${progress.completed} 成功 · ${progress.failed} 失败`);
-  $("#transcode-progress-bar").style.width = `${progress.percent}%`;
-  const progressNode = $("#transcode-progress");
-  progressNode.setAttribute("aria-valuemax", String(progress.total));
-  progressNode.setAttribute("aria-valuenow", String(progress.finished));
-  progressNode.setAttribute("aria-valuetext", `${progress.finished}/${progress.total} 已结束，${progress.completed} 成功，${progress.failed} 失败`);
-  setNodeText("#transcode-queue-status", progress.finished === 0
-    ? `浏览器已生成 ${progress.total} 个待执行任务，但尚未运行 FFmpeg；请在本机执行后导入结果。`
-    : progress.finished < progress.total
-    ? `已导入部分结果；还有 ${progress.total - progress.finished} 个任务未结束。`
-    : progress.failed
-    ? `本轮执行结果已全部导入，其中 ${progress.failed} 个失败；请查看对应任务原因。`
-    : "本轮执行结果已全部导入，所有任务完成。");
-  const list = $("#transcode-task-list");
-  list.replaceChildren();
-  const labels = { pending: "待执行", completed: "已完成", failed: "失败", skipped: "已跳过" };
-  manifest.tasks.forEach((task) => {
-    const card = element("article", "item transcode-task");
-    const head = element("div", "item-head");
-    head.append(element("strong", "", task.source.name), element("span", `badge ${task.status}`, labels[task.status] || "待执行"));
-    card.append(head);
-    card.append(element("p", "task-path", `输出：${task.outputPath}`));
-    if (task.status === "failed") {
-      const failure = element("p", "error", task.failureReason || `FFmpeg 执行失败${task.exitCode === null ? "" : `（退出码 ${task.exitCode}）`}`);
-      failure.setAttribute("role", "alert");
-      card.append(failure);
-    }
-    const commandDetails = element("details", "task-command");
-    const commandSummary = element("summary");
-    commandSummary.append(element("span", "", "查看本地命令"));
-    const command = element("pre", "", task.powerShellCommand);
-    commandDetails.append(commandSummary, command);
-    card.append(commandDetails);
-    list.append(card);
-  });
-  if (!manifest.tasks.length) list.append(element("p", "empty-inline", "当前任务清单为空，请重新选择视频并生成。"));
-  $("#transcode-queue").hidden = false;
-}
-
-$("#build-transcode-tasks").addEventListener("click", () => {
-  setFeedback("#transcode-status", "#transcode-error");
-  try {
-    state.transcodeManifest = createTranscodeManifest(state.transcodeFiles, readTranscodeSettings(), { creatorVersion: CURRENT_VERSION });
-    renderTranscodeQueue();
-    setFeedback("#transcode-status", "#transcode-error", { status: `已生成 ${state.transcodeManifest.tasks.length} 个本机待执行任务；浏览器尚未运行 FFmpeg，也未修改原片。` });
-  } catch (error) {
-    state.transcodeManifest = null;
-    renderTranscodeQueue();
-    setFeedback("#transcode-status", "#transcode-error", { error: error.message || "无法生成转码任务" });
-  }
-});
-
-$("#copy-transcode-commands").addEventListener("click", async () => {
-  if (!state.transcodeManifest) return;
-  try {
-    await navigator.clipboard.writeText(state.transcodeManifest.tasks.map((task) => task.powerShellCommand).join("\r\n\r\n"));
-    setFeedback("#transcode-status", "#transcode-error", { status: "全部本地命令已复制；执行前请再次核对输入与输出路径。" });
-  } catch {
-    setFeedback("#transcode-status", "#transcode-error", { error: "复制失败，请导出任务清单并使用本地执行器。" });
-  }
-});
-
-$("#export-transcode-manifest").addEventListener("click", () => {
-  if (!state.transcodeManifest) return;
-  download("qianchuan-transcode-tasks.json", JSON.stringify(state.transcodeManifest, null, 2), "application/json;charset=utf-8");
-  setFeedback("#transcode-status", "#transcode-error", { status: "任务清单已导出；它包含你填写的本地输入与输出路径，请只在可信设备上保存。" });
-});
-
-$("#download-transcode-worker").addEventListener("click", async () => {
-  try {
-    const response = await fetch(chrome.runtime.getURL("tools/transcode-worker.ps1"), { cache: "no-store" });
-    if (!response.ok) throw new Error("执行器文件无法读取");
-    download("transcode-worker.ps1", await response.text(), "text/plain;charset=utf-8");
-    setFeedback("#transcode-status", "#transcode-error", { status: "本地执行器已下载。运行前可以打开检查其源码。" });
-  } catch (error) {
-    setFeedback("#transcode-status", "#transcode-error", { error: `${error.message || "执行器下载失败"}；也可以从开源仓库 tools 目录获取。` });
-  }
-});
-
-$("#import-transcode-result").addEventListener("click", () => $("#transcode-result-file").click());
-$("#transcode-result-file").addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  event.target.value = "";
-  if (!file || !state.transcodeManifest) return;
-  try {
-    validateNonMediaImport(file, "executionResult");
-    const results = validateTranscodeResult(parseJsonDocument(await file.text(), "本机执行结果"), state.transcodeManifest);
-    const byId = new Map(results.map((result) => [result.id, result]));
-    state.transcodeManifest.tasks = state.transcodeManifest.tasks.map((task) => ({ ...task, ...(byId.get(task.id) || {}) }));
-    renderTranscodeQueue();
-    const progress = transcodeProgress(state.transcodeManifest.tasks);
-    setFeedback("#transcode-status", "#transcode-error", progress.failed
-      ? { error: `已导入执行结果：${progress.completed} 成功，${progress.failed} 失败。失败原因已显示在任务下方。` }
-      : { status: `已导入执行结果：${progress.completed} 个任务完成。` });
-  } catch (error) {
-    setFeedback("#transcode-status", "#transcode-error", { error: error.message || "执行结果无法导入" });
-  }
-});
 
 async function applyWorkspaceMaintenance(recovery) {
   let writesSaved = true;

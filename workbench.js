@@ -18,6 +18,7 @@ import { isSupportedVideoFile, transcodeProgress, validateLocalVideoBatch, valid
 import { formatLocalBytes } from "./src/local-file-guard.js";
 import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
 import { buildWorkbenchOverview, buildWorkbenchResetPrompt } from "./src/workbench-overview.js";
+import { createLatestOperationGuard } from "./src/operation-guard.js";
 import {
   ANALYSIS_HANDOFF_INBOX_KEY,
   analysisHandoffForAnalysis,
@@ -27,6 +28,17 @@ import {
 
 const $ = (selector) => document.querySelector(selector);
 const VERSION = chrome.runtime.getManifest().version;
+const workbenchOperations = createLatestOperationGuard();
+const FLOW_SECTION_IDS = Object.freeze(["source", "processing", "transcription", "structure"]);
+const MATERIAL_OUTPUT_DEFAULTS = Object.freeze({
+  preset: "balanced",
+  resolution: "1080p",
+  frameRate: "keep",
+  videoBitrateKbps: "6000",
+  audioBitrateKbps: "192",
+  sampleRate: "48000",
+  outputSuffix: "_analysis"
+});
 const state = {
   entryMode: "",
   files: [],
@@ -171,9 +183,34 @@ function setOverviewStep(id, status, text, isCurrent = false) {
   card.classList.toggle("current", status === "current");
   card.classList.toggle("complete", status === "complete");
   card.classList.toggle("attention", status === "attention");
+  card.classList.toggle("optional", status === "optional");
   if (isCurrent) card.setAttribute("aria-current", "step");
   else card.removeAttribute("aria-current");
   setNodeText(`#overview-${id}-state`, text);
+}
+
+function syncWorkbenchLayout(model) {
+  const transcriptFastPath = state.entryMode === "transcript";
+  for (const id of ["source", "processing"]) {
+    document.getElementById(id).hidden = transcriptFastPath;
+    const navigation = document.querySelector(`.sidebar nav a[href="#${id}"]`);
+    if (navigation) navigation.hidden = transcriptFastPath;
+  }
+  $("#video-source-boundary").hidden = transcriptFastPath;
+  for (const id of FLOW_SECTION_IDS) {
+    const status = model.steps[id].status;
+    const section = document.getElementById(id);
+    const navigation = document.querySelector(`.sidebar nav a[href="#${id}"]`);
+    section.dataset.flowStatus = status;
+    navigation?.setAttribute("data-flow-status", status);
+    if (model.current === id) {
+      section.setAttribute("aria-current", "step");
+      navigation?.setAttribute("aria-current", "step");
+    } else {
+      section.removeAttribute("aria-current");
+      navigation?.removeAttribute("aria-current");
+    }
+  }
 }
 
 function updateWorkbenchOverview() {
@@ -198,6 +235,7 @@ function updateWorkbenchOverview() {
   });
   state.flowModel = model;
   for (const [id, step] of Object.entries(model.steps)) setOverviewStep(id, step.status, step.text, model.current === id);
+  syncWorkbenchLayout(model);
   setNodeText("#workbench-overview-summary", model.summary);
   setNodeText("#workbench-entry-note", model.entryNotice);
   const phaseNode = $("#workbench-flow-state");
@@ -295,6 +333,13 @@ function workbenchResetSnapshot() {
     || $("#douyin-source-note").value.trim()
     || $("#material-authorization").checked
     || !["", "ffmpeg"].includes($("#material-ffmpeg-path").value.trim())
+    || $("#material-preset").value !== MATERIAL_OUTPUT_DEFAULTS.preset
+    || $("#material-resolution").value !== MATERIAL_OUTPUT_DEFAULTS.resolution
+    || $("#material-frame-rate").value !== MATERIAL_OUTPUT_DEFAULTS.frameRate
+    || $("#material-video-bitrate").value !== MATERIAL_OUTPUT_DEFAULTS.videoBitrateKbps
+    || $("#material-audio-bitrate").value !== MATERIAL_OUTPUT_DEFAULTS.audioBitrateKbps
+    || $("#material-sample-rate").value !== MATERIAL_OUTPUT_DEFAULTS.sampleRate
+    || $("#material-output-suffix").value !== MATERIAL_OUTPUT_DEFAULTS.outputSuffix
     || $("#transcription-mode").value !== "text_import"
     || $("#transcription-language").value !== "zh"
     || $("#whisper-executable").value.trim()
@@ -326,6 +371,7 @@ function workbenchResetSnapshot() {
 }
 
 function resetWorkbenchSession() {
+  workbenchOperations.invalidateAll();
   state.entryMode = "";
   state.files = [];
   state.processingManifest = null;
@@ -354,6 +400,14 @@ function resetWorkbenchSession() {
   $("#material-ffmpeg-path").value = "ffmpeg";
   $("#material-authorization").checked = false;
   $("#douyin-source-note").value = "";
+  $("#material-preset").value = MATERIAL_OUTPUT_DEFAULTS.preset;
+  $("#material-resolution").value = MATERIAL_OUTPUT_DEFAULTS.resolution;
+  $("#material-frame-rate").value = MATERIAL_OUTPUT_DEFAULTS.frameRate;
+  $("#material-video-bitrate").value = MATERIAL_OUTPUT_DEFAULTS.videoBitrateKbps;
+  $("#material-audio-bitrate").value = MATERIAL_OUTPUT_DEFAULTS.audioBitrateKbps;
+  $("#material-sample-rate").value = MATERIAL_OUTPUT_DEFAULTS.sampleRate;
+  $("#material-output-suffix").value = MATERIAL_OUTPUT_DEFAULTS.outputSuffix;
+  syncMaterialPreset({ invalidate: false });
   $("#transcription-mode").value = "text_import";
   $("#transcription-language").value = "zh";
   $("#whisper-executable").value = "";
@@ -414,14 +468,14 @@ function resetWorkbenchSession() {
   setStatus("#structure-status", "尚未分析");
   updateWorkbenchOverview();
   setFlowFeedback({ status: "已开始新一轮；只清空了当前工作台页面内存，原始文件、侧边栏和浏览器本地工作区均未修改。" });
-  moveToFlowTarget("", "workbench-entry-video");
+  moveToFlowTarget("", "workbench-entry-transcript");
 }
 
 $("#reset-workbench-session").addEventListener("click", () => {
   const resetPlan = buildWorkbenchResetPrompt(workbenchResetSnapshot());
   if (!resetPlan.hasWork) {
     setFlowFeedback({ status: "当前已经是新一轮的初始状态；请选择视频或已有转写入口。" });
-    moveToFlowTarget("", "workbench-entry-video");
+    moveToFlowTarget("", "workbench-entry-transcript");
     return;
   }
   if (!window.confirm(resetPlan.message)) return;
@@ -444,6 +498,7 @@ function fileIdentity(file) {
 }
 
 function invalidateProcessing(message = "文件或参数已变化，请重新生成任务。") {
+  workbenchOperations.cancel("material-result-import");
   const hadManifest = Boolean(state.processingManifest);
   state.processingManifest = null;
   state.processingPrepared = false;
@@ -553,13 +608,29 @@ $("#clear-material-selection").addEventListener("click", () => {
   setFlowFeedback({ status: "素材选择已清空；原始文件未被修改。" });
 });
 
-for (const id of ["material-source-root", "material-output-root", "material-ffmpeg-path", "material-authorization", "douyin-source-note"]) {
+for (const id of [
+  "material-source-root", "material-output-root", "material-ffmpeg-path", "material-authorization", "douyin-source-note",
+  "material-resolution", "material-frame-rate", "material-video-bitrate", "material-audio-bitrate",
+  "material-sample-rate", "material-output-suffix"
+]) {
   $(`#${id}`).addEventListener("input", () => {
     setFlowFeedback();
     invalidateProcessing();
-    updateMaterialReadiness();
   });
 }
+
+function syncMaterialPreset({ invalidate = true } = {}) {
+  const preset = $("#material-preset").value;
+  const audioDefaults = { balanced: "192", high_quality: "256", compact: "128", custom_bitrate: "192" };
+  $("#material-audio-bitrate").value = audioDefaults[preset] || MATERIAL_OUTPUT_DEFAULTS.audioBitrateKbps;
+  $("#material-video-bitrate").disabled = preset !== "custom_bitrate";
+  if (!invalidate) return;
+  setFlowFeedback();
+  invalidateProcessing();
+}
+
+$("#material-preset").addEventListener("change", () => syncMaterialPreset());
+syncMaterialPreset({ invalidate: false });
 
 $("#open-source-note").addEventListener("click", () => {
   setFeedback("#source-message", "#source-error");
@@ -581,11 +652,13 @@ function processingSettings() {
     outputRoot: $("#material-output-root").value,
     ffmpegExecutable: $("#material-ffmpeg-path").value,
     sourceNote: $("#douyin-source-note").value,
-    outputSuffix: "_analysis",
-    preset: "balanced",
-    resolution: "1080p",
-    frameRate: "keep",
-    sampleRate: "48000"
+    outputSuffix: $("#material-output-suffix").value,
+    preset: $("#material-preset").value,
+    resolution: $("#material-resolution").value,
+    frameRate: $("#material-frame-rate").value,
+    videoBitrateKbps: $("#material-video-bitrate").value,
+    audioBitrateKbps: $("#material-audio-bitrate").value,
+    sampleRate: $("#material-sample-rate").value
   };
 }
 
@@ -700,11 +773,16 @@ $("#material-result-file").addEventListener("change", async (event) => {
   const file = event.target.files[0];
   event.target.value = "";
   if (!file || !state.processingManifest) return;
+  const manifestAtStart = state.processingManifest;
+  const operation = workbenchOperations.begin("material-result-import");
   try {
     validateNonMediaImport(file, "executionResult");
-    const results = validateTranscodeResult(parseJsonDocument(await file.text(), "本机执行结果"), state.processingManifest);
+    const text = await file.text();
+    if (!workbenchOperations.isCurrent(operation) || state.processingManifest !== manifestAtStart) return;
+    const results = validateTranscodeResult(parseJsonDocument(text, "本机执行结果"), manifestAtStart);
+    if (!workbenchOperations.isCurrent(operation) || state.processingManifest !== manifestAtStart) return;
     const byId = new Map(results.map((result) => [result.id, result]));
-    state.processingManifest.tasks = state.processingManifest.tasks.map((task) => ({ ...task, ...(byId.get(task.id) || {}) }));
+    state.processingManifest.tasks = manifestAtStart.tasks.map((task) => ({ ...task, ...(byId.get(task.id) || {}) }));
     state.processingExported = false;
     renderProcessingQueue();
     const progress = transcodeProgress(state.processingManifest.tasks);
@@ -718,9 +796,12 @@ $("#material-result-file").addEventListener("change", async (event) => {
         ? { status: "本机处理已全部完成；下一步导入转写文本。" }
         : { status: `已导入 ${progress.finished}/${progress.total} 项结果；请继续完成并导入剩余结果。` });
   } catch (error) {
+    if (!workbenchOperations.isCurrent(operation)) return;
     const message = error.message || "执行结果无法导入";
     setFeedback("#processing-message", "#processing-error", { error: message });
     setFlowFeedback({ error: `${message}；当前任务清单和已导入状态保持不变。` });
+  } finally {
+    workbenchOperations.end(operation);
   }
 });
 
@@ -930,9 +1011,13 @@ $("#transcript-file").addEventListener("change", async (event) => {
   const file = event.target.files[0];
   event.target.value = "";
   if (!file) return;
+  const operation = workbenchOperations.begin("transcript-import");
   try {
     validateNonMediaImport(file, "transcript");
-    const transcriptDocument = parseTranscriptDocument(await file.text(), { name: file.name });
+    const fileText = await file.text();
+    if (!workbenchOperations.isCurrent(operation)) return;
+    const transcriptDocument = parseTranscriptDocument(fileText, { name: file.name });
+    if (!workbenchOperations.isCurrent(operation)) return;
     const text = transcriptDocument.text;
     selectEntryMode("transcript");
     $("#transcript-text").value = text;
@@ -948,13 +1033,17 @@ $("#transcript-file").addEventListener("change", async (event) => {
     setFlowFeedback({ status: "转写文本已在本地读取；下一步分析文案结构。" });
     updateWorkbenchOverview();
   } catch (error) {
+    if (!workbenchOperations.isCurrent(operation)) return;
     const message = error.message || "无法读取转写文本";
     setFeedback("#transcription-message", "#transcription-error", { error: message });
     setFlowFeedback({ error: `${message}；当前处理任务和已有文本保持不变。` });
+  } finally {
+    workbenchOperations.end(operation);
   }
 });
 
 $("#transcript-text").addEventListener("input", (event) => {
+  workbenchOperations.cancel("transcript-import");
   const length = event.target.value.trim().length;
   if (length) {
     selectEntryMode("transcript");
@@ -1175,6 +1264,9 @@ function currentAnalysisHandoff() {
 
 $("#send-analysis-handoff").addEventListener("click", async () => {
   if (!state.analysis) return;
+  const operation = workbenchOperations.begin("handoff-send");
+  const sendButton = $("#send-analysis-handoff");
+  sendButton.disabled = true;
   setFeedback("#structure-message", "#structure-error");
   let openPromise = null;
   try {
@@ -1182,6 +1274,7 @@ $("#send-analysis-handoff").addEventListener("click", async () => {
     openPromise = openAnalysisHandoffSidePanel(chrome.sidePanel, chrome.windows);
     const queued = await enqueueAnalysisHandoff(chrome.storage?.session, handoff);
     const opened = await openPromise;
+    if (!workbenchOperations.isCurrent(operation)) return;
     state.handoffState = queued.status === "conflict" ? "conflict" : "sent";
     state.analysisPreserved ||= queued.status !== "conflict";
     state.revisionPreserved ||= queued.status !== "conflict";
@@ -1205,6 +1298,7 @@ $("#send-analysis-handoff").addEventListener("click", async () => {
     updateWorkbenchOverview();
   } catch (error) {
     const opened = openPromise ? await openPromise : { opened: false };
+    if (!workbenchOperations.isCurrent(operation)) return;
     state.handoffState = "failed";
     if (!openPromise) setRevisionConfirmation(false);
     setFeedback("#structure-message", "#structure-error", {
@@ -1212,6 +1306,8 @@ $("#send-analysis-handoff").addEventListener("click", async () => {
     });
     setFlowFeedback({ error: `${error.message || "无法发送到编导台"}；分析与草稿仍保留，可修正后重试或导出 JSON。` });
     updateWorkbenchOverview();
+  } finally {
+    if (workbenchOperations.end(operation)) sendButton.disabled = !state.revisionConfirmed || state.handoffState === "sent";
   }
 });
 

@@ -40,6 +40,7 @@ function entry(testId, options = {}) {
       baselineCreative: "母版 A",
       minSpend: 300,
       decision: options.decision || null,
+      productionStatus: options.productionStatus || null,
       planItem: options.item || planItem()
     },
     result: options.result === undefined
@@ -59,11 +60,19 @@ test("keeps an honest workflow action when no experiment exists", () => {
 });
 
 test("puts experiment backfill ahead of routine plan checking", () => {
-  const pending = entry("TEST-PENDING");
+  const pending = entry("TEST-PENDING", { productionStatus: { stage: "launched", updatedAt: "2026-08-31T01:00:00.000Z" } });
   const desk = buildDirectorDesk({ recentWork: recent(), timeline: [pending] });
   assert.deepEqual(desk.items.map((item) => item.kind), ["experiment", "workflow"]);
   assert.equal(desk.items[0].route.next.target, "manual_result");
   assert.equal(desk.items[0].route.next.testId, "TEST-PENDING");
+});
+
+test("puts honest production marking ahead of routine plan checking", () => {
+  const pending = entry("TEST-UNTRACKED");
+  const desk = buildDirectorDesk({ recentWork: recent(), timeline: [pending] });
+  assert.equal(desk.items[0].route.next.code, "production_unmarked");
+  assert.equal(desk.items[0].route.next.target, "production");
+  assert.match(desk.items[0].description, /当前为“未标记”/u);
 });
 
 test("prioritizes stale evidence and surfaces latest-batch single-variable risk", () => {

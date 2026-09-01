@@ -2,12 +2,14 @@ import { spreadsheetSafeText } from "./release-safety.js";
 import { EXPERIMENT_DECISION_METRIC_LABELS, EXPERIMENT_DECISION_OUTCOME_LABELS, experimentDataHealth } from "./experiment-decision.js";
 import { experimentQualityWarningLabel } from "./experiment-results.js";
 import { buildVersionTimeline, sanitizeProjectRecord } from "./project-model.js";
+import { PRODUCTION_STAGE_CODES, productionStageCode, productionStageLabel } from "./production-status.js";
 import { sanitizedTargetRoi } from "./update.js";
 
-export const EXPERIMENT_LEDGER_SCHEMA_VERSION = 2;
+export const EXPERIMENT_LEDGER_SCHEMA_VERSION = 3;
 export const EXPERIMENT_LEDGER_FILTERS = Object.freeze([
   "all", "pending", "insufficient", "target_met", "needs_review", "quality_warning",
-  "decision_missing", "decision_current", "decision_stale", "decision_continue", "decision_keep", "decision_stop"
+  "decision_missing", "decision_current", "decision_stale", "decision_continue", "decision_keep", "decision_stop",
+  "production_untracked", ...PRODUCTION_STAGE_CODES.map((stage) => `production_${stage}`)
 ]);
 
 const REVIEW_CODES = new Set(["metric_missing", "below_target", "above_parent", "below_parent"]);
@@ -68,6 +70,7 @@ export function filterExperimentTimeline(timeline = [], filter = "all") {
   if (safeFilter === "decision_current") return entries.filter((entry) => entry?.decisionState?.code === "current");
   if (safeFilter === "decision_stale") return entries.filter((entry) => entry?.decisionState?.code === "stale");
   if (safeFilter.startsWith("decision_")) return entries.filter((entry) => entry?.version?.decision?.outcome === safeFilter.slice("decision_".length));
+  if (safeFilter.startsWith("production_")) return entries.filter((entry) => productionStageCode(entry?.version?.productionStatus) === safeFilter.slice("production_".length));
   return entries.filter((entry) => entry?.evaluation?.code === safeFilter);
 }
 
@@ -91,6 +94,7 @@ export function buildExperimentLedgerSnapshot({ project, versions = [], results 
       variableValue: version.planItem.variant,
       baselineCreative: version.baselineCreative,
       minSpend: version.minSpend,
+      productionStatus: version.productionStatus ? structuredClone(version.productionStatus) : null,
       resultImportedAt: result?.importedAt || null,
       metrics: result ? structuredClone(result.metrics) : null,
       qualityWarnings: result ? [...result.qualityWarnings] : [],
@@ -115,7 +119,7 @@ function csvCell(value) {
 
 export function experimentLedgerToCsv(snapshot) {
   if (!snapshot || snapshot.schemaVersion !== EXPERIMENT_LEDGER_SCHEMA_VERSION || !Array.isArray(snapshot.entries)) throw new Error("实验台账格式无效");
-  const headers = ["项目", "测试编号", "父版本", "批次", "方案生成时间", "主要变量", "变量值", "基线素材", "最低消耗", "状态", "状态说明", "数据健康", "口径提醒", "人工决策状态", "人工决策", "主指标", "护栏指标", "决策理由", "决策时间", "结果导入时间", "消耗", "成交金额", "ROI", "展示", "点击", "转化", "CTR（小数）", "CVR（小数）", "3 秒播放率（小数）", "完播率（小数）"];
+  const headers = ["项目", "测试编号", "父版本", "批次", "方案生成时间", "主要变量", "变量值", "基线素材", "最低消耗", "人工制作状态", "制作状态更新时间", "状态", "状态说明", "数据健康", "口径提醒", "人工决策状态", "人工决策", "主指标", "护栏指标", "决策理由", "决策时间", "结果导入时间", "消耗", "成交金额", "ROI", "展示", "点击", "转化", "CTR（小数）", "CVR（小数）", "3 秒播放率（小数）", "完播率（小数）"];
   const rows = snapshot.entries.map((entry) => {
     const metrics = entry.metrics || {};
     return [
@@ -128,6 +132,8 @@ export function experimentLedgerToCsv(snapshot) {
       entry.variableValue,
       entry.baselineCreative,
       entry.minSpend,
+      productionStageLabel(entry.productionStatus),
+      entry.productionStatus?.updatedAt,
       entry.evaluation?.label,
       entry.evaluation?.detail,
       entry.dataHealth?.label,

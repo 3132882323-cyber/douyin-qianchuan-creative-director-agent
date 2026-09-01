@@ -1,4 +1,4 @@
-import { buildPowerShellCommand, createTranscodeManifest, validateLocalVideoBatch } from "./transcode.js";
+import { LOCAL_VIDEO_BATCH_LIMITS, buildPowerShellCommand, createTranscodeManifest, validateLocalVideoBatch } from "./transcode.js";
 import {
   MAX_TIMED_TRANSCRIPT_BYTES,
   MAX_TIMED_TRANSCRIPT_CHARACTERS,
@@ -10,11 +10,7 @@ export const MATERIAL_WORKFLOW_KIND = "qianchuan-local-material-analysis-v1";
 export const LOCAL_TRANSCRIPTION_KIND = "qianchuan-local-transcription-handoff-v1";
 export const MAX_TRANSCRIPT_BYTES = MAX_TIMED_TRANSCRIPT_BYTES;
 export const MAX_TRANSCRIPT_CHARACTERS = MAX_TIMED_TRANSCRIPT_CHARACTERS;
-export const MATERIAL_VIDEO_BATCH_LIMITS = Object.freeze({
-  maxFiles: 40,
-  maxSingleFileBytes: 10 * 1024 * 1024 * 1024,
-  maxTotalBytes: 40 * 1024 * 1024 * 1024
-});
+export const MATERIAL_VIDEO_BATCH_LIMITS = LOCAL_VIDEO_BATCH_LIMITS;
 
 const STRUCTURE_RULES = Object.freeze([
   { id: "hook", label: "开场钩子", patterns: [/你是不是|还在|千万别|别再|注意|看这里|为什么|没想到|今天告诉|先别划走|真的有人|居然|竟然|怎么选/u] },

@@ -25,7 +25,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .brand strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
 .sidebar nav { display: grid; gap: 8px; margin-top: 40px; }
 .sidebar nav a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; color: #444444; text-decoration: none; }
+.sidebar nav a[hidden] { display: none; }
 .sidebar nav a:hover, .sidebar nav a:focus-visible { border-color: var(--line); background: #ffffff; color: #111111; }
+.sidebar nav a[data-flow-status="current"] { border: 2px solid #111111; background: #ffffff; color: #111111; font-weight: 800; }
+.sidebar nav a[data-flow-status="complete"] { border: 3px double #111111; background: #f2f2f2; color: #111111; }
 .sidebar nav b { color: #777777; font: 700 11px/1 monospace; }
 .local-note { display: grid; gap: 4px; margin-top: auto; padding: 12px; border: 1px solid #bdbdbd; border-radius: 8px; background: #ffffff; }
 .local-note strong { color: #111111; font-size: 10px; letter-spacing: .13em; }
@@ -66,6 +69,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .entry-mode label:has(input:checked) { border: 2px solid #111111; background: #f7f7f7; }
 .entry-mode input { flex: 0 0 auto; width: 17px; min-height: 17px; margin-top: 2px; accent-color: var(--gold); }
 .entry-mode span { display: grid; gap: 3px; }
+.entry-mode em { color: #666666; font-size: 9px; font-style: normal; font-weight: 800; letter-spacing: .04em; }
+.entry-mode .entry-recommended { border-color: #777777; }
 .entry-mode strong { overflow-wrap: anywhere; color: #111111; font-size: 13px; }
 .entry-mode small { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
 .entry-note { margin: 8px 0 0; color: #666666; font-size: 11px; line-height: 1.5; }
@@ -74,10 +79,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .overview-steps li.current { border: 2px solid #111111; background: #f7f7f7; }
 .overview-steps li.complete { border: 3px double #111111; background: #f2f2f2; }
 .overview-steps li.attention { border: 1px dashed #111111; background: #ffffff; }
+.overview-steps li.optional { border-style: dashed; background: #fafafa; }
 .overview-steps span { display: flex; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; }
 .overview-steps b { color: #777777; font: 700 10px/1.55 monospace; }
 .overview-steps strong { min-width: 0; overflow-wrap: anywhere; color: #111111; font-size: 12px; }
 .overview-steps li.current strong, .overview-steps li.complete strong, .overview-steps li.attention strong { color: #111111; }
+.overview-steps li.optional strong { color: #777777; font-weight: 600; }
 .overview-progress-head { display: flex; justify-content: space-between; gap: 12px; margin: 13px 1px 6px; color: var(--muted); font-size: 10px; }
 .overview-progress-head strong { color: #111111; }
 .overview-progress { height: 6px; overflow: hidden; border: 1px solid #111111; border-radius: 99px; background: #ffffff; }
@@ -88,6 +95,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .boundary strong { color: #111111; }
 .boundary span { color: #444444; }
 .panel { scroll-margin-top: 20px; margin: 24px 0; padding: 28px; border: 1px solid var(--line); border-radius: 8px; background: #ffffff; }
+.panel[data-flow-status="current"] { border: 2px solid #111111; }
+.panel[data-flow-status="complete"] { border: 3px double #111111; background: #fafafa; }
+.panel[data-flow-status="attention"] { border: 1px dashed #111111; }
 .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .section-head h2 { margin: 0; font-size: 22px; }
 .section-head em { padding: 5px 9px; border: 1px solid #bdbdbd; border-radius: 99px; background: #f7f7f7; color: #555555; font-size: 11px; font-style: normal; }
@@ -136,6 +146,12 @@ input:focus, select:focus, textarea:focus { border-color: #111111; box-shadow: 0
 .button-row.compact { grid-template-columns: repeat(2, minmax(160px, 230px)); margin-top: 10px; }
 .instructions { margin-top: 14px; color: var(--muted); font-size: 12px; }
 .instructions summary { cursor: pointer; color: #111111; }
+.material-output-settings { margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f7; }
+.material-output-settings > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.material-output-settings > summary span { color: #111111; font-weight: 800; }
+.material-output-settings > summary small { color: var(--muted); font-size: 10px; }
+.material-output-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.material-output-grid .help { grid-column: 1 / -1; }
 code { color: #111111; font-family: Consolas, monospace; font-weight: 700; }
 .engine-config { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #f7f7f7; }
 .engine-config button, .engine-config .button-row, .engine-config .help { grid-column: 1 / -1; }
@@ -158,6 +174,10 @@ code { color: #111111; font-family: Consolas, monospace; font-weight: 700; }
 .result-head h3 { margin: 0; }
 .result-head .result-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .result-head button { min-height: 34px; padding: 6px 10px; }
+.more-exports { position: relative; color: var(--muted); font-size: 11px; }
+.more-exports > summary { width: fit-content; margin-left: auto; border: 1px solid #111111; border-radius: 8px; padding: 7px 10px; background: #ffffff; color: #111111; cursor: pointer; font-weight: 700; list-style-position: inside; }
+.more-exports[open] > summary { background: #f2f2f2; }
+.more-export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 8px; }
 .segment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .segment { padding: 12px; border: 1px solid var(--line); border-left: 3px solid #111111; border-radius: 8px; background: #ffffff; }
 .segment p { margin: 0; }
@@ -194,13 +214,16 @@ code { color: #111111; font-family: Consolas, monospace; font-weight: 700; }
 .revision-fields .revision-field-wide { grid-column: auto; }
 .boundary-inline { margin: 16px 0 0; padding: 12px; border: 1px dashed #777777; border-radius: 8px; background: #f7f7f7; color: #333333; font-size: 11px; }
 .revision-confirm { margin-bottom: 10px; }
-.revision-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.revision-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.revision-more-exports { grid-column: 1 / -1; }
+.revision-more-exports > summary { margin-left: 0; }
+.revision-more-exports .more-export-actions { justify-content: flex-start; }
 main *, .sidebar * { min-width: 0; }
 .task p, .operation-item span, .instructions, code, .help, .boundary span, .local-note span { overflow-wrap: anywhere; word-break: break-word; }
 
 @media (max-width: 1439px) {
   .source-layout { grid-template-columns: 1fr; }
-  .source-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .source-fields, .material-output-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .source-fields .field-stack:last-child { grid-column: 1 / -1; }
   .segment-list, .recommendations, .revision-recommendations { grid-template-columns: 1fr; }
   .revision-draft-head { grid-template-columns: 1fr; }
@@ -234,7 +257,7 @@ main *, .sidebar * { min-width: 0; }
   .ghost-button, .overview-head button { width: 100%; }
   .overview-action { width: 100%; }
   .overview-action button { min-width: 0; }
-  .entry-mode, .overview-steps, .grid.two, .source-fields, .workflow-cards, .coverage-grid, .button-row, .button-row.compact, .engine-config, .segment-list, .recommendations, .revision-recommendations, .revision-setup, .revision-fields, .revision-actions, .transcript-metadata { grid-template-columns: 1fr; }
+  .entry-mode, .overview-steps, .grid.two, .source-fields, .material-output-grid, .workflow-cards, .coverage-grid, .button-row, .button-row.compact, .engine-config, .segment-list, .recommendations, .revision-recommendations, .revision-setup, .revision-fields, .revision-actions, .transcript-metadata { grid-template-columns: 1fr; }
   .transcript-metadata .wide { grid-column: 1; }
   .revision-fields .revision-field-wide { grid-column: auto; }
   .revision-meta { grid-template-columns: 1fr; }

@@ -20,7 +20,7 @@ test("keeps Manifest V3 versions aligned and permissions minimal", () => {
   const manifest = JSON.parse(manifestText);
   const packageJson = JSON.parse(packageText);
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.3.0");
+  assert.equal(manifest.version, "1.4.0");
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(manifest.permissions, ["sidePanel", "storage"]);
   assert.deepEqual(manifest.optional_host_permissions, ["https://api.github.com/*"]);
@@ -52,6 +52,12 @@ test("guides the optional-task to review, generate and export flow", () => {
   assert.match(script, /markReviewPending/u);
   assert.match(script, /planExportReceipt/u);
   assert.match(script, /requested\?\.disabled[\s\S]*aria-describedby/u);
+  assert.match(html, /class="actions plan-export-actions"/u);
+  assert.match(html, /<details class="more-exports">\s*<summary>更多导出<\/summary>/u);
+  for (const id of ["copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(css, /\.more-export-actions/u);
 });
 
 test("keeps narrow side panels and programmatic focus usable", () => {
@@ -192,21 +198,19 @@ test("states the self-owned-master safety boundary", () => {
   assert.match(script, /不检测、移除、破解或规避平台水印/);
 });
 
-test("exposes an authorized local-only transcode queue", () => {
-  for (const id of ["transcode-files", "transcode-authorization", "transcode-selection-list", "clear-transcode-selection", "build-transcode-tasks", "transcode-progress", "transcode-task-list", "export-transcode-manifest", "download-transcode-worker", "import-transcode-result"]) {
-    assert.match(html, new RegExp(`id="${id}"`));
+test("keeps one local video-processing implementation and routes side-panel candidates to it", () => {
+  assert.match(html, /id="video-processing-entry"/u);
+  assert.match(html, /视频处理已移入独立工作台/u);
+  assert.match(html, /40 个文件 \/ 单文件 10 GB \/ 合计 40 GB/u);
+  assert.match(html, /浏览器出于隐私保护不会把当前目录选择自动传到新标签页/u);
+  for (const id of ["transcode-files", "transcode-authorization", "build-transcode-tasks", "transcode-task-list"]) {
+    assert.doesNotMatch(html, new RegExp(`id="${id}"`, "u"));
   }
-  assert.match(html, /团队母版转码/);
-  assert.match(html, /浏览器不会执行转码，只生成受限任务与命令/);
-  assert.match(html, /-map_metadata 0/);
-  assert.match(html, /不提供裁剪、模糊、清元数据或自定义滤镜/);
-  assert.match(script, /createTranscodeManifest/);
+  assert.doesNotMatch(script, /createTranscodeManifest|transcodeFiles|transcodeManifest/u);
+  assert.match(script, /在独立工作台处理候选视频/u);
+  assert.match(script, /window\.open\(chrome\.runtime\.getURL\("workbench\.html"\)/u);
   assert.match(transcodeScript, /remoteUpload: false/);
   assert.doesNotMatch(transcodeScript, /removeWatermark|detectWatermark|delogo/);
-  assert.match(transcodeScript, /maxFiles:\s*100/u);
-  assert.match(transcodeScript, /maxSingleFileBytes:\s*20 \* GIB/u);
-  assert.match(script, /validateLocalVideoBatch\(nextFiles, LOCAL_VIDEO_BATCH_LIMITS\)/u);
-  assert.match(html, /role="progressbar"[\s\S]*aria-valuenow="0"/u);
 });
 
 test("ships a dismissible and reopenable local-first onboarding guide", () => {
@@ -235,13 +239,11 @@ test("isolates startup failures and only clears explicitly listed damaged keys",
 test("guards local imports, spreadsheet exports and destructive resets", () => {
   assert.match(script, /validateNonMediaImport\(reportFile, "report"\)/u);
   assert.match(script, /validateNonMediaImport\(file, "backup"\)/u);
-  assert.match(script, /validateNonMediaImport\(file, "executionResult"\)/u);
   assert.match(script, /parseJsonDocument/u);
   assert.match(releaseSafetyScript, /spreadsheetSafeText/u);
   assert.match(script, /导入失败 · 保留当前数据/u);
   assert.match(script, /window\.confirm\("将清空当前人工选区/u);
   assert.match(script, /window\.confirm\("将重置当前人工选区/u);
-  assert.match(script, /window\.confirm\("将清空当前浏览器会话中的转码文件/u);
 });
 
 test("fails closed on background and delayed local-storage writes", () => {
@@ -259,19 +261,19 @@ test("keeps one primary workbench entry above navigation and only a contextual l
   const libraryStatusIndex = html.indexOf('class="card library-status"');
   const masterIndex = html.indexOf('class="card master-panel"');
   const repairIndex = html.indexOf('id="image-repair-panel"');
-  const transcodeIndex = html.indexOf('id="transcode-panel"');
+  const videoProcessingIndex = html.indexOf('id="video-processing-entry"');
   const updateIndex = html.indexOf('class="card update-center"');
   assert.ok(entryIndex > headerEndIndex && entryIndex < tabsIndex);
   assert.equal((html.match(/id="open-analysis-workbench"/gu) || []).length, 1);
   assert.equal((html.match(/href="workbench\.html"/gu) || []).length, 2);
   assert.doesNotMatch(html.slice(libraryStart), /id="open-analysis-workbench"|class="workbench-entry"/u);
-  assert.match(html.slice(libraryStart), /处理本地素材/u);
+  assert.match(html.slice(libraryStart), /视频处理已移入独立工作台/u);
   assert.match(html, /编导决策台/u);
   assert.ok(masterIndex > libraryStatusIndex);
-  assert.ok(updateIndex > transcodeIndex);
+  assert.ok(videoProcessingIndex > repairIndex);
+  assert.ok(updateIndex > videoProcessingIndex);
   assert.match(html.slice(masterIndex, html.indexOf(">", masterIndex) + 1), /\bopen\b/u);
   assert.doesNotMatch(html.slice(repairIndex, html.indexOf(">", repairIndex) + 1), /\bopen\b/u);
-  assert.doesNotMatch(html.slice(transcodeIndex, html.indexOf(">", transcodeIndex) + 1), /\bopen\b/u);
   assert.doesNotMatch(html.slice(updateIndex, html.indexOf(">", updateIndex) + 1), /\bopen\b/u);
   assert.match(html, /id="library-empty-actions"/u);
   assert.match(html, /先导入历史素材/u);
@@ -297,6 +299,26 @@ test("wires a prioritized director desk without adding storage keys or automatic
   assert.match(css, /@media\s*\(max-width:\s*400px\)[\s\S]*\.recent-task \.secondary\s*\{[^}]*max-width:\s*110px/iu);
 });
 
+test("keeps production progress explicit, local and director-controlled", () => {
+  assert.match(html, /id="production-stage-counts"/u);
+  for (const value of ["production_untracked", "production_planned", "production_shooting", "production_editing", "production_ready", "production_launched", "production_paused"]) {
+    assert.match(html, new RegExp(`value="${value}"`, "u"));
+  }
+  assert.match(html, /只认编导手动标记/u);
+  assert.match(html, /系统不会根据方案生成、导出或结果文件推断/u);
+  assert.match(script, /createProductionStatus/u);
+  assert.match(script, /summarizeProductionTimeline/u);
+  assert.match(script, /setVersionProductionStatus/u);
+  assert.match(script, /focusProduction: true/u);
+  assert.match(script, /制作状态：\$\{productionStageLabel/u);
+  assert.match(css, /\.production-overview/u);
+  assert.match(css, /\.version-production/u);
+  assert.match(css, /\.production-stage-select/u);
+  const productionControl = script.slice(script.indexOf("function renderProductionStatusControl"), script.indexOf("function renderProductionOverview"));
+  assert.match(productionControl, /select\.addEventListener\("change", async/u);
+  assert.doesNotMatch(productionControl, /importResults|generateCreativePlan|chrome\.storage/u);
+});
+
 test("ships a keyboard-ready roving tab state before JavaScript initializes", () => {
   assert.match(html, /id="tab-task"[^>]*aria-selected="true"[^>]*tabindex="0"/u);
   for (const id of ["tab-review", "tab-next", "tab-library"]) {
@@ -309,10 +331,10 @@ test("ships a keyboard-ready roving tab state before JavaScript initializes", ()
 });
 
 test("wires accessible status, tables, pagination and fail-closed local matching", () => {
-  for (const id of ["match-status", "repair-status", "transcode-status"]) {
+  for (const id of ["match-status", "repair-status"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*role="status"`, "u"));
   }
-  for (const id of ["match-error", "repair-error", "transcode-error"]) {
+  for (const id of ["match-error", "repair-error"]) {
     assert.match(html, new RegExp(`id="${id}"[^>]*role="alert"`, "u"));
   }
   assert.match(script, /element\("caption", "sr-only"/u);

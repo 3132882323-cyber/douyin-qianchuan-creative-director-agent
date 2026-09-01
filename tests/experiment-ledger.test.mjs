@@ -8,6 +8,7 @@ import {
 } from "../src/experiment-ledger.js";
 import { createExperimentDecision } from "../src/experiment-decision.js";
 import { createProjectRecord, createResultRecord, versionRecordsFromPlan } from "../src/project-model.js";
+import { createProductionStatus } from "../src/production-status.js";
 
 function planItem(id) {
   return {
@@ -57,6 +58,7 @@ test("summarizes and filters experiment states without changing source order", (
   assert.equal(filterExperimentTimeline(timeline, "decision_missing").length, 2);
   assert.equal(filterExperimentTimeline(timeline, "decision_stale").length, 1);
   assert.equal(filterExperimentTimeline(timeline, "decision_keep").length, 1);
+  assert.equal(filterExperimentTimeline(timeline, "production_untracked").length, 4);
   assert.deepEqual(filterExperimentTimeline(timeline, "unknown"), timeline);
 });
 
@@ -66,12 +68,14 @@ test("exports a compact project ledger and neutralizes spreadsheet formulas", ()
   const result = createResultRecord({ projectId: project.id, testId: version.testId, importedAt: "2026-08-24T01:00:00.000Z", metrics: { spend: 400, gmv: 720, impressions: 1000, clicks: 40, conversions: 4 }, qualityWarnings: ["roi_mismatch"] });
   const evaluation = { code: "target_met", label: "达到目标", detail: "ROI 达标" };
   const decision = createExperimentDecision({ outcome: "keep", primaryMetric: "roi", guardrailMetrics: ["ctr"], reason: "ROI 达标，CTR 作为护栏继续观察。" }, { version, result, evaluation, targetRoi: 1.5 }, { decidedAt: "2026-08-24T02:00:00.000Z" });
-  const snapshot = buildExperimentLedgerSnapshot({ project, versions: [{ ...version, decision }], results: [result], targetRoi: 1.5, exportedAt: "2026-08-25T01:00:00.000Z" });
+  const productionStatus = createProductionStatus("launched", "2026-08-24T01:30:00.000Z");
+  const snapshot = buildExperimentLedgerSnapshot({ project, versions: [{ ...version, decision, productionStatus }], results: [result], targetRoi: 1.5, exportedAt: "2026-08-25T01:00:00.000Z" });
   assert.equal(snapshot.summary.targetMet, 1);
   assert.equal(snapshot.entries[0].metrics.roi, 1.8);
   assert.deepEqual(snapshot.entries[0].qualityWarnings, ["roi_mismatch"]);
   assert.equal(snapshot.entries[0].decision.outcome, "keep");
   assert.equal(snapshot.entries[0].decisionState.code, "current");
+  assert.deepEqual(snapshot.entries[0].productionStatus, productionStatus);
   assert.equal("planItem" in snapshot.entries[0], false);
   assert.doesNotMatch(JSON.stringify(snapshot), /口播|分镜/u);
   const csv = experimentLedgerToCsv(snapshot);
@@ -80,6 +84,7 @@ test("exports a compact project ledger and neutralizes spreadsheet formulas", ()
   assert.match(csv, /'=HYPERLINK/u);
   assert.match(csv, /ROI 与成交金额 ÷ 消耗差异较大/u);
   assert.match(csv, /保留方案/u);
+  assert.match(csv, /已上线/u);
   assert.match(csv, /ROI 达标，CTR 作为护栏继续观察/u);
   assert.match(csv, /,400,720,1\.8,/u);
 });

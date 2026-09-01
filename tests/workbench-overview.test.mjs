@@ -38,7 +38,7 @@ test("starts without forcing every user into the video route", () => {
     type: "choose-entry",
     target: "",
     control: "",
-    focus: "workbench-entry-video",
+    focus: "workbench-entry-transcript",
     label: "先选择一个开始方式",
     disabled: true
   });
@@ -62,6 +62,11 @@ test("offers video processing and existing-transcript routes through the same pr
   assert.equal(transcript.current, "transcription");
   assert.equal(transcript.next.control, "transcript-file");
   assert.equal(transcript.next.label, "开始：导入已有转写");
+  assert.equal(transcript.steps.source.status, "optional");
+  assert.equal(transcript.steps.source.text, "本轮跳过");
+  assert.equal(transcript.steps.processing.status, "optional");
+  assert.equal(transcript.steps.processing.text, "本轮跳过");
+  assert.equal(transcript.phase.progress, 5);
   assert.match(transcript.phase.guidance, /粘贴区/u);
 });
 

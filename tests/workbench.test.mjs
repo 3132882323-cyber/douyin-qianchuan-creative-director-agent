@@ -9,14 +9,39 @@ const [html, script, css, manifestText] = await Promise.all([
   readFile(new URL("../manifest.json", import.meta.url), "utf8")
 ]);
 
-test("ships a separate V1.3.0 material processing and analysis workbench while keeping the side panel", () => {
+test("ships a separate V1.4.0 material processing and analysis workbench while keeping the side panel", () => {
   assert.match(html, /素材处理与分析工作台/);
   assert.doesNotMatch(html, /素材分析服务台/u);
-  assert.match(html, /V1\.3\.0/);
+  assert.match(html, /V1\.4\.0/);
   assert.match(html, /返回侧边栏工作区/);
   for (const section of ["source", "processing", "transcription", "structure"]) {
     assert.match(html, new RegExp(`id="${section}"`));
   }
+});
+
+test("centralizes advanced local video output settings in the workbench", () => {
+  for (const id of [
+    "material-output-settings", "material-preset", "material-resolution", "material-frame-rate",
+    "material-video-bitrate", "material-audio-bitrate", "material-sample-rate", "material-output-suffix"
+  ]) assert.match(html, new RegExp(`id="${id}"`, "u"));
+  assert.match(html, /进阶输出设置/u);
+  assert.match(html, /分析音频始终固定为 PCM 16-bit、16 kHz、单声道 WAV/u);
+  assert.match(html, /id="material-video-bitrate"[^>]*disabled/u);
+  assert.match(script, /function syncMaterialPreset\(/u);
+  assert.match(script, /#material-video-bitrate"\)\.disabled = preset !== "custom_bitrate"/u);
+  for (const selector of ["material-output-suffix", "material-preset", "material-resolution", "material-frame-rate", "material-video-bitrate", "material-audio-bitrate", "material-sample-rate"]) {
+    assert.match(script, new RegExp(`#${selector.replaceAll("-", "-")}`, "u"));
+  }
+  assert.match(css, /\.material-output-grid\s*\{[^}]*repeat\(4,\s*minmax\(0,\s*1fr\)\)/iu);
+});
+
+test("keeps frequent actions visible and groups secondary exports", () => {
+  assert.match(html, /<details class="more-exports"><summary>更多导出<\/summary>/u);
+  assert.match(html, /class="more-exports revision-more-exports"/u);
+  for (const id of ["export-structure-json", "export-structure-md", "export-revision-json", "export-revision-md"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(css, /\.more-export-actions/u);
 });
 
 test("uses the expanded responsive canvas without a page-level 920px floor", () => {
@@ -69,6 +94,9 @@ test("lets users choose video or existing-transcript entry without persisting th
   assert.doesNotMatch(html, /id="overview-source"[^>]*aria-current/u);
   assert.match(html, /value="video"/u);
   assert.match(html, /value="transcript"/u);
+  assert.ok(html.indexOf('value="transcript"') < html.indexOf('value="video"'));
+  assert.match(html, /推荐 · 最快得到可拍结论/u);
+  assert.match(html, /进阶 · 需要本机工具/u);
   assert.match(html, /切换入口不会清空已选视频、任务、转写正文或分析结果/u);
   assert.match(html, /直接粘贴转写/u);
   assert.match(script, /entryMode: ""/u);
@@ -77,9 +105,15 @@ test("lets users choose video or existing-transcript entry without persisting th
   assert.match(script, /moveToFlowTarget\("transcription", "transcript-text"\)/u);
   assert.match(script, /已保留当前/u);
   assert.match(script, /setNodeText\("#workbench-entry-note", model\.entryNotice\)/u);
+  assert.match(script, /function syncWorkbenchLayout\(model\)/u);
+  assert.match(script, /state\.entryMode === "transcript"/u);
+  assert.match(script, /document\.getElementById\(id\)\.hidden = transcriptFastPath/u);
+  assert.match(script, /#video-source-boundary"\)\.hidden = transcriptFastPath/u);
   assert.doesNotMatch(script, /storage\.(?:local|session)[^\n]*entryMode|entryMode[^\n]*storage\.(?:local|session)/iu);
   assert.match(css, /\.entry-mode\s*\{[^}]*repeat\(2,/iu);
   assert.match(css, /\.entry-mode,\s*\.overview-steps/iu);
+  assert.match(css, /\.overview-steps li\.optional/u);
+  assert.match(css, /\.panel\[data-flow-status="current"\]/u);
 });
 
 test("resets only the current page session after an explicit second confirmation", () => {
@@ -105,6 +139,8 @@ test("resets only the current page session after an explicit second confirmation
   assert.match(resetBlock, /#confirm-revision-draft"\)\.checked = false/u);
   assert.match(resetBlock, /state\.handoffState = "idle"/u);
   assert.match(resetBlock, /#processing-queue"\)\.hidden = true/u);
+  assert.match(resetBlock, /#material-preset"\)\.value = MATERIAL_OUTPUT_DEFAULTS\.preset/u);
+  assert.match(resetBlock, /syncMaterialPreset\(\{ invalidate: false \}\)/u);
   assert.match(resetBlock, /#processing-queue-status", "浏览器仅生成任务/u);
   assert.match(resetBlock, /#structure-result"\)\.hidden = true/u);
   assert.doesNotMatch(resetBlock, /chrome\.storage|download\(/u);
@@ -147,7 +183,8 @@ test("connects timed-source analysis to a single-variable editable revision draf
   assert.equal((html.match(/data-revision-field="[a-zA-Z]+"/gu) || []).length, 11);
   assert.match(html, /每份草稿只允许一个主要测试变量|所选建议就是本草稿唯一/u);
   assert.match(html, /生成逻辑是本地确定性模板，不预测投放效果/u);
-  assert.match(script, /parseTranscriptDocument\(await file\.text\(\), \{ name: file\.name \}\)/u);
+  assert.match(script, /const fileText = await file\.text\(\)/u);
+  assert.match(script, /parseTranscriptDocument\(fileText, \{ name: file\.name \}\)/u);
   assert.match(script, /transcriptDocumentMatchesText\(state\.transcriptDocument, event\.target\.value\)/u);
   for (const id of ["transcript-metadata", "transcript-source-type", "transcript-format-segments", "transcript-duration", "transcript-parser-version", "transcript-fingerprint", "transcript-warning-summary"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
@@ -164,6 +201,18 @@ test("connects timed-source analysis to a single-variable editable revision draf
   assert.match(script, /creativeRevisionWithEdits/u);
   assert.match(css, /\.revision-fields\s*\{[^}]*grid-template-columns:\s*1fr/iu);
   assert.match(css, /\.revision-fields\s*\{[^}]*max-width:\s*980px/iu);
+});
+
+test("drops stale asynchronous imports and handoff completions after newer work or reset", () => {
+  assert.match(script, /createLatestOperationGuard/u);
+  assert.match(script, /workbenchOperations\.invalidateAll\(\)/u);
+  assert.match(script, /workbenchOperations\.cancel\("material-result-import"\)/u);
+  assert.match(script, /workbenchOperations\.cancel\("transcript-import"\)/u);
+  assert.match(script, /workbenchOperations\.begin\("material-result-import"\)/u);
+  assert.match(script, /state\.processingManifest !== manifestAtStart/u);
+  assert.match(script, /workbenchOperations\.begin\("transcript-import"\)/u);
+  assert.match(script, /workbenchOperations\.begin\("handoff-send"\)/u);
+  assert.match(script, /if \(!workbenchOperations\.isCurrent\(operation\)\) return;/u);
 });
 
 test("keeps every static workbench id selector connected", () => {

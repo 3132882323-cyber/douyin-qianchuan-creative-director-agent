@@ -168,6 +168,21 @@ export function createProjectRepository(database) {
     return nextVersion;
   }
 
+  async function setVersionProductionStatus(projectId, testId, productionStatus, updatedAt = new Date().toISOString()) {
+    const id = versionRecordId(projectId, testId);
+    const transaction = database.transaction(["projects", "versions"], "readwrite");
+    const projects = transaction.objectStore("projects");
+    const versions = transaction.objectStore("versions");
+    const [project, version] = await Promise.all([projects.get(projectId), versions.get(id)]);
+    if (!project || project.archived || !version || version.projectId !== projectId) {
+      throw new Error("目标测试版本不存在或不属于当前项目");
+    }
+    const nextVersion = sanitizeVersionRecord({ ...version, productionStatus, updatedAt });
+    const nextProject = sanitizeProjectRecord({ ...project, updatedAt });
+    await Promise.all([versions.put(nextVersion), projects.put(nextProject), transaction.done]);
+    return nextVersion;
+  }
+
   async function exportPortfolio() {
     const projects = (await database.getAll("projects")).filter((project) => !project.archived).map(sanitizeProjectRecord);
     const current = await currentProject();
@@ -193,5 +208,5 @@ export function createProjectRepository(database) {
     return portfolio;
   }
 
-  return { initialize, listProjects, currentProject, saveWorkspace, createProject, renameProject, requestSwitch, listVersions, listResults, syncPlan, importResults, setVersionDecision, exportPortfolio, replacePortfolio };
+  return { initialize, listProjects, currentProject, saveWorkspace, createProject, renameProject, requestSwitch, listVersions, listResults, syncPlan, importResults, setVersionDecision, setVersionProductionStatus, exportPortfolio, replacePortfolio };
 }

@@ -10,6 +10,7 @@ import {
   versionRecordsFromPlan
 } from "../src/project-model.js";
 import { createExperimentDecision } from "../src/experiment-decision.js";
+import { createProductionStatus } from "../src/production-status.js";
 
 const projectId = "prj_12345678";
 
@@ -102,6 +103,20 @@ test("keeps explicit parent lineage and evaluates only backfilled descriptive re
   assert.throws(() => versionRecordsFromPlan({ projectId, plan: secondPlan, existingVersions: [first], parentVersionId: "UNKNOWN" }), /父版本/);
 });
 
+test("keeps production progress explicitly untracked until a director marks it", () => {
+  const firstPlan = plan("MAT1234567-HOOK-20260823T010000000", "2026-08-23T01:00:00.000Z");
+  const [first] = versionRecordsFromPlan({ projectId, plan: firstPlan, existingVersions: [], parentVersionId: null, now: "2026-08-23T01:00:01.000Z" });
+  assert.equal(first.productionStatus, null);
+  const marked = sanitizeVersionRecord({
+    ...first,
+    productionStatus: createProductionStatus("shooting", "2026-08-23T02:00:00.000Z")
+  });
+  assert.equal(marked.productionStatus.stage, "shooting");
+  const [resynced] = versionRecordsFromPlan({ projectId, plan: firstPlan, existingVersions: [marked], parentVersionId: null, now: "2026-08-23T03:00:00.000Z" });
+  assert.deepEqual(resynced.productionStatus, marked.productionStatus);
+  assert.throws(() => sanitizeVersionRecord({ ...first, productionStatus: { stage: "published", updatedAt: "2026-08-23T02:00:00.000Z" } }), /状态代码/u);
+});
+
 test("validates a complete multi-project backup and rejects broken references", () => {
   const project = createProjectRecord({ id: projectId, name: "项目 A", now: "2026-08-23T01:00:00.000Z" });
   const [version] = versionRecordsFromPlan({
@@ -111,10 +126,12 @@ test("validates a complete multi-project backup and rejects broken references", 
     parentVersionId: null,
     now: "2026-08-23T01:00:01.000Z"
   });
+  const markedVersion = { ...version, productionStatus: createProductionStatus("ready", "2026-08-24T01:00:00.000Z") };
   const result = createResultRecord({ projectId, testId: version.testId, importedAt: "2026-08-25T01:00:00.000Z", metrics: { spend: 400, roi: 1.6 } });
-  const portfolio = validateProjectPortfolio({ schemaVersion: 1, currentProjectId: projectId, projects: [project], versions: [version], results: [result] });
+  const portfolio = validateProjectPortfolio({ schemaVersion: 1, currentProjectId: projectId, projects: [project], versions: [markedVersion], results: [result] });
   assert.equal(portfolio.projects.length, 1);
   assert.equal(portfolio.results[0].testId, version.testId);
+  assert.equal(portfolio.versions[0].productionStatus.stage, "ready");
   assert.throws(() => validateProjectPortfolio({ ...portfolio, results: [{ ...result, testId: "UNKNOWN", id: `${projectId}:UNKNOWN` }] }), /结果记录/);
 });
 

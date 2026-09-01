@@ -81,9 +81,9 @@ test("requires explicit ownership authorization and valid local roots", () => {
 
 test("fails closed on unsupported, empty, oversized and excessive local video batches", () => {
   assert.deepEqual(LOCAL_VIDEO_BATCH_LIMITS, {
-    maxFiles: 100,
-    maxSingleFileBytes: 20 * 1024 ** 3,
-    maxTotalBytes: 100 * 1024 ** 3
+    maxFiles: 40,
+    maxSingleFileBytes: 10 * 1024 ** 3,
+    maxTotalBytes: 40 * 1024 ** 3
   });
   const limits = { maxFiles: 2, maxSingleFileBytes: 100, maxTotalBytes: 150 };
   assert.equal(validateLocalVideoBatch([{ name: "a.mp4", type: "video/mp4", size: 50 }], limits).totalBytes, 50);
