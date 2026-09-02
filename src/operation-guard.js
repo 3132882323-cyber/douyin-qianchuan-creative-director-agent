@@ -42,3 +42,48 @@ export function createLatestOperationGuard() {
 
   return Object.freeze({ begin, isCurrent, end, cancel, invalidateAll });
 }
+
+export function createRevisionOperationGuard({ getRevision, isAvailable = () => true } = {}) {
+  if (typeof getRevision !== "function" || typeof isAvailable !== "function") throw new Error("修订操作保护器参数无效");
+  let sequence = 0;
+  let active = null;
+  const issued = new WeakSet();
+
+  function readRevision() {
+    const revision = Number(getRevision());
+    if (!Number.isSafeInteger(revision) || revision < 0) throw new Error("修订号无效");
+    return revision;
+  }
+
+  function begin() {
+    const revision = readRevision();
+    const token = Object.freeze({ sequence: ++sequence, revision });
+    issued.add(token);
+    active = token;
+    return token;
+  }
+
+  function isLatest(token) {
+    return active === token;
+  }
+
+  function matchesRevision(token) {
+    if (!token || typeof token !== "object" || !issued.has(token)) return false;
+    try {
+      return token.revision === readRevision() && isAvailable() === true;
+    } catch {
+      return false;
+    }
+  }
+
+  function isCurrent(token) {
+    return isLatest(token) && matchesRevision(token);
+  }
+
+  function invalidate() {
+    sequence += 1;
+    active = null;
+  }
+
+  return Object.freeze({ begin, isLatest, matchesRevision, isCurrent, invalidate });
+}

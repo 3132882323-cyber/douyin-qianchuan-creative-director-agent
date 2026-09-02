@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectorBatchBoard, directorBatchBoardToText, directorBatchEditAssemblyToText } from "../src/director-batch-board.js";
+import {
+  buildDirectorBatchBoard,
+  directorBatchBoardToText,
+  directorBatchCutReviewToText,
+  directorBatchEditAssemblyToText
+} from "../src/director-batch-board.js";
 
 const VARIABLE_CONFIG = Object.freeze({
   hook: { label: "前三秒钩子", field: "hook", values: ["先看结果", "别急着下结论", "三秒看懂差别"] },
@@ -117,11 +122,25 @@ test("fails closed for invalid batch size, variable declarations, missing produc
   const ambiguousBoard = buildDirectorBatchBoard(ambiguousSlate);
   assert.equal(ambiguousBoard.copyable, false);
   assert.ok(ambiguousBoard.blockers.some((item) => /测试编号重复/u.test(item)));
+  const skippedSlate = samplePlan();
+  skippedSlate.items[1].id = "BATCH-HOOK-A99";
+  const skippedBoard = buildDirectorBatchBoard(skippedSlate);
+  assert.equal(skippedBoard.copyable, false);
+  assert.ok(skippedBoard.blockers.some((item) => /应为 BATCH-HOOK-A01/u.test(item)));
+  const mislabeledBaseline = samplePlan();
+  mislabeledBaseline.items[0].id = "BATCH-HOOK-BASE";
+  const mislabeledBoard = buildDirectorBatchBoard(mislabeledBaseline);
+  assert.equal(mislabeledBoard.copyable, false);
+  assert.ok(mislabeledBoard.blockers.some((item) => /应为 BATCH-HOOK-B00/u.test(item)));
   const excessive = samplePlan();
   excessive.items[0].hook = "长".repeat(1001);
   excessive.items[0].variant = excessive.items[0].hook;
   excessive.items[0].production.spokenScript = excessive.items[0].hook;
   assert.throws(() => buildDirectorBatchBoard(excessive), /处理上限/u);
+
+  const oversizedProof = samplePlan();
+  oversizedProof.items[1].production.shootingTask = `必拍证据：${"证".repeat(4100)}`;
+  assert.throws(() => buildDirectorBatchBoard(oversizedProof), /批次镜头字段超过本地处理上限/u);
 });
 
 test("builds an editor-ready assembly map without touching files or project state", () => {
@@ -155,4 +174,39 @@ test("uses variable-specific anti-contamination rules and refuses blocked or tam
   const tampered = buildDirectorBatchBoard(samplePlan());
   tampered.assembly.guard = "";
   assert.throws(() => directorBatchEditAssemblyToText(tampered), /缺少装配边界/u);
+});
+
+test("builds a three-pass manual cut review with one explicit outcome per version", () => {
+  const plan = samplePlan();
+  const original = structuredClone(plan);
+  const output = directorBatchCutReviewToText(buildDirectorBatchBoard(plan));
+  assert.match(output, /批次成片验收单/u);
+  assert.match(output, /先独立验收 B00/u);
+  assert.match(output, /第一遍 · 静音 0–1 秒/u);
+  assert.match(output, /第二遍 · 有声 0–3 秒/u);
+  assert.match(output, /第三遍 · 完整播放/u);
+  assert.match(output, /通过交付/u);
+  assert.match(output, /退回剪辑/u);
+  assert.match(output, /需要补拍/u);
+  assert.match(output, /不自动评分、投票、选优或修改制作状态/u);
+  assert.match(output, /不读取或播放成片、不识别画面\/声音、不自动判断通过/u);
+  assert.deepEqual(plan, original);
+});
+
+test("keeps cut-review focus variable-specific and fails closed for drift or missing review rules", () => {
+  const cases = [
+    ["hook", /第 3 秒必须自然接回同一证据骨架/u],
+    ["claim", /证据不足时只能返剪降级表达或补拍/u],
+    ["scene", /靠裁切掩盖的假场景变化/u],
+    ["audience", /只换人群名但表演、场景或问题仍指向另一受众/u]
+  ];
+  for (const [variable, expected] of cases) {
+    assert.match(directorBatchCutReviewToText(buildDirectorBatchBoard(samplePlan(variable))), expected);
+  }
+  const drifted = samplePlan();
+  drifted.items[1].fixedElements = "改变了固定项";
+  assert.throws(() => directorBatchCutReviewToText(buildDirectorBatchBoard(drifted)), /仍待修正/u);
+  const tampered = buildDirectorBatchBoard(samplePlan());
+  tampered.assembly.reviewFocus = "";
+  assert.throws(() => directorBatchCutReviewToText(tampered), /缺少人工验收边界/u);
 });

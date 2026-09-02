@@ -90,9 +90,16 @@ import { buildCreativeVersionDiff } from "./src/creative-version-diff.js";
 import { assessOperatorHandoffReadiness, buildOperatorSingleVariableDiff, experimentVersionToOperatorCard } from "./src/operator-handoff.js";
 import { buildLatestOperatorBatchHandoff, latestOperatorBatchToText } from "./src/operator-batch-handoff.js";
 import { buildInspirationRelay, inspirationCardToChallenge, inspirationRelayToText } from "./src/inspiration-relay.js";
-import { buildDirectorMonitorCard, directorMonitorCardToText } from "./src/director-monitor-card.js";
-import { buildDirectorBlindReview, directorBlindReviewDecisionSheetToText, directorBlindReviewKeyToText, directorBlindReviewPackToText } from "./src/director-blind-review.js";
-import { buildDirectorBatchBoard, directorBatchBoardToText, directorBatchEditAssemblyToText } from "./src/director-batch-board.js";
+import { mountDirectorMonitorTools } from "./src/director-monitor-ui.js";
+import { mountDirectorItemRunSheetTools } from "./src/director-item-run-sheet-ui.js";
+import { mountDirectorBlindReview } from "./src/director-blind-review-ui.js";
+import { mountDirectorBatchTools } from "./src/director-batch-tools-ui.js";
+import { createPlanAutosave } from "./src/plan-autosave.js";
+import { mountPlanEditor } from "./src/plan-editor-ui.js";
+import { createPlanDerivedRefresh, derivePlanAsyncFeedback } from "./src/plan-derived-refresh.js";
+import { createRevisionOperationGuard } from "./src/operation-guard.js";
+import { createPlanCompletionTracker, createPlanOutputController } from "./src/plan-output-controller.js";
+import { mountPlanGapNavigator } from "./src/plan-gap-navigator.js";
 import { buildDirectorDesk } from "./src/director-desk.js";
 import {
   PRODUCTION_STAGE_DEFINITIONS,
@@ -152,9 +159,121 @@ const state = {
   }
 };
 let taskSaveTimer = null;
-let planSaveTimer = null;
+let pendingPlanParentVersionId;
 let onboardingReturnFocus = null;
 let initializationPromise = null;
+let planInteractionRevision = 0;
+let planSaveFeedback = { code: "idle", error: "" };
+let planDerivedRefreshError = "";
+const planOutputGuard = createRevisionOperationGuard({
+  getRevision: () => planInteractionRevision,
+  isAvailable: () => Boolean(state.plan?.items?.length && !state.planStale)
+});
+const planCompletionTracker = createPlanCompletionTracker({
+  getPlan: () => state.plan,
+  getReceipt: () => state.planExportReceipt,
+  hasCompletion: () => state.planExported || Boolean(state.planExportReceipt),
+  setReceipt: (receipt) => {
+    state.planExportReceipt = receipt;
+    state.planExported = Boolean(receipt);
+  },
+  matchesRevision: matchesCurrentPlanRevision,
+  createReceipt: (plan) => ({ fingerprint: planFingerprint(plan), completedAt: new Date().toISOString() }),
+  writeReceipt: (receipt) => chrome.storage.local.set({ planExportReceipt: receipt }),
+  removeReceipt: () => chrome.storage.local.remove("planExportReceipt"),
+  persist: () => persistCurrentProject({ quiet: true })
+});
+const planOutputController = createPlanOutputController({
+  isAvailable: () => Boolean(state.plan?.items?.length && !state.planStale),
+  beginOperation: beginPlanOutputOperation,
+  isCurrentOperation: isCurrentPlanOutput,
+  isLatestOperation: isLatestPlanOutput,
+  writeText: (value) => navigator.clipboard.writeText(value),
+  downloadFile: (name, content, type) => download(name, content, type),
+  markCompleted: (token) => planCompletionTracker.markCompleted(token),
+  onFeedback: (message) => setNodeText("#copy-state", message),
+  onOutdated: reportOutdatedPlanOutput,
+  onCompletionChange: updateWorkflowGuide
+});
+const directorMonitorTools = mountDirectorMonitorTools({
+  root: document,
+  getPlan: () => state.plan,
+  getPlanStale: () => state.planStale,
+  getRevision: () => planInteractionRevision,
+  beginOperation: beginPlanOutputOperation,
+  isOperationCurrent: isCurrentPlanOutput,
+  writeText: (value) => navigator.clipboard.writeText(value)
+});
+const directorItemRunSheetTools = mountDirectorItemRunSheetTools({
+  root: document,
+  getPlan: () => state.plan,
+  getPlanStale: () => state.planStale,
+  getRevision: () => planInteractionRevision,
+  beginOperation: beginPlanOutputOperation,
+  isOperationCurrent: isCurrentPlanOutput,
+  writeText: (value) => navigator.clipboard.writeText(value)
+});
+const directorBatchTools = mountDirectorBatchTools({
+  root: document,
+  getPlan: () => state.plan,
+  getPlanStale: () => state.planStale,
+  getRevision: () => planInteractionRevision,
+  writeText: (value) => navigator.clipboard.writeText(value)
+});
+const directorBlindReview = mountDirectorBlindReview({
+  root: document,
+  getPlan: () => state.plan,
+  getPlanStale: () => state.planStale,
+  getRevision: () => planInteractionRevision,
+  writeText: (value) => navigator.clipboard.writeText(value)
+});
+const planGapNavigator = mountPlanGapNavigator({
+  root: document,
+  getAssessment: () => state.plan?.items?.length ? assessPlanShootReadiness(state.plan) : null,
+  getPlanStale: () => state.planStale,
+  revealTarget: (target, onUnavailable) => focusAndReveal(target, { onUnavailable }),
+  onFeedback: (message) => setNodeText("#copy-state", message)
+});
+const planAutosave = createPlanAutosave({
+  save: savePlanNow,
+  onState: ({ code, error }) => {
+    if (code === "pending") {
+      planSaveFeedback = { code, error: "" };
+    } else if (code === "saved") {
+      planSaveFeedback = { code, error: "" };
+    } else if (code === "error") {
+      planSaveFeedback = { code, error: `当前编辑仍保留在本次会话，但未能保存：${error?.message || "本地存储不可用"}` };
+    }
+    renderPlanAsyncFeedback();
+  }
+});
+const planDerivedRefresh = createPlanDerivedRefresh({
+  refresh: runPlanDerivedRefresh,
+  requestFrame: (callback) => window.requestAnimationFrame(callback),
+  cancelFrame: (frameId) => window.cancelAnimationFrame(frameId),
+  onError: (error) => {
+    planDerivedRefreshError = `派生提示未能刷新：${error?.message || "方案编辑仍保留，请重新打开侧边栏"}`;
+    renderPlanAsyncFeedback();
+  }
+});
+const planEditor = mountPlanEditor({
+  root: document,
+  getItemCount: () => state.plan?.items?.length || 0,
+  onEdit: ({ index, path, value }) => {
+    setPlanValue(index, path, value);
+    planInteractionRevision += 1;
+    const clearedExportReceipt = clearPlanExportReceipt({ deferProject: true });
+    clearPlanToolFeedback();
+    setNodeText("#copy-state", "方案有未导出的修改；保存后可重新复制或导出。");
+    planAutosave.schedule();
+    planDerivedRefresh.schedule();
+    if (clearedExportReceipt) updateWorkflowGuide();
+  },
+  onError: (error) => {
+    setStatus("#plan-state", "编辑失败");
+    $("#plan-error").textContent = error.message || "当前方案字段无法更新，请重新生成后重试。";
+  }
+});
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -173,6 +292,21 @@ function setNodeText(selector, value) {
   const node = $(selector);
   const text = String(value ?? "");
   if (node.textContent !== text) node.textContent = text;
+}
+
+function setElementText(node, value) {
+  const text = String(value ?? "");
+  if (node && node.textContent !== text) node.textContent = text;
+}
+
+function renderPlanAsyncFeedback() {
+  const view = derivePlanAsyncFeedback({
+    saveCode: planSaveFeedback.code,
+    saveError: planSaveFeedback.error,
+    refreshError: planDerivedRefreshError
+  });
+  setNodeText("#plan-error", view.error);
+  if (view.status) setStatus("#plan-state", view.status, view.good);
 }
 
 function setFeedback(statusSelector, errorSelector, { status = "", error = "" } = {}) {
@@ -230,12 +364,20 @@ function preferredScrollBehavior() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true ? "auto" : "smooth";
 }
 
-function focusAndReveal(target, { block = "center" } = {}) {
-  if (!target) return;
+function focusAndReveal(target, { block = "center", onUnavailable } = {}) {
+  if (!target) {
+    onUnavailable?.();
+    return false;
+  }
   requestAnimationFrame(() => {
+    if (!target.isConnected) {
+      onUnavailable?.();
+      return;
+    }
     target.focus();
     target.scrollIntoView({ behavior: preferredScrollBehavior(), block, inline: "nearest" });
   });
+  return true;
 }
 
 function switchView(viewId, { focusHeading = false, scrollTop = !focusHeading } = {}) {
@@ -1342,10 +1484,9 @@ async function prepareProjectTransition() {
     taskSaveTimer = null;
     await saveCreativeTask({ quiet: true });
   }
-  if (planSaveTimer) {
-    clearTimeout(planSaveTimer);
-    planSaveTimer = null;
-    await savePlanNow();
+  if (!await planAutosave.flush()) {
+    setProjectFeedback({ error: "当前方案仍有未保存修改；为避免丢失内容，已取消项目切换。请重试保存后再切换。" });
+    return false;
   }
   await persistCurrentProject({ quiet: true });
   return true;
@@ -1484,22 +1625,31 @@ function planFingerprint(plan) {
   return hash.toString(16).padStart(8, "0");
 }
 
-function clearPlanExportReceipt() {
-  state.planExported = false;
-  state.planExportReceipt = null;
-  void chrome.storage.local.remove("planExportReceipt").catch(() => {});
+function beginPlanOutputOperation() {
+  return planOutputGuard.begin();
 }
 
-async function markPlanCompleted() {
-  if (!state.plan || state.planStale) return;
-  state.planExported = true;
-  state.planExportReceipt = { fingerprint: planFingerprint(state.plan), completedAt: new Date().toISOString() };
-  try {
-    await chrome.storage.local.set({ planExportReceipt: state.planExportReceipt });
-  } catch {
-    // 当前会话仍可显示完成；持久化失败不会把已成功的复制或导出误报为失败。
-  }
-  await persistCurrentProject({ quiet: true });
+function isLatestPlanOutput(token) {
+  return planOutputGuard.isLatest(token);
+}
+
+function isCurrentPlanOutput(token) {
+  return planOutputGuard.isCurrent(token);
+}
+
+function matchesCurrentPlanRevision(token) {
+  return planOutputGuard.matchesRevision(token);
+}
+
+function reportOutdatedPlanOutput(token, label) {
+  if (!isLatestPlanOutput(token)) return;
+  planCompletionTracker.clearCompletion();
+  setNodeText("#copy-state", `${label}已按点击时版本完成，但当前方案已经变化；请重新复制或导出。`);
+  updateWorkflowGuide();
+}
+
+function clearPlanExportReceipt({ deferProject = false } = {}) {
+  return planCompletionTracker.clearCompletion({ persistProject: !deferProject });
 }
 
 function setPlanExportControls(disabled, reason = "") {
@@ -1528,15 +1678,38 @@ function updatePlanEmptyState() {
 
 function markPlanStale(reason) {
   if (!state.plan?.items?.length) return;
+  planInteractionRevision += 1;
+  planDerivedRefresh.cancel();
+  clearPlanToolFeedback();
   state.planStale = true;
   clearPlanExportReceipt();
   setStatus("#plan-state", "需重新生成");
   $("#copy-state").textContent = reason || "上下文已变化，请重新生成后再导出。";
   setPlanExportControls(true, "上下文已变化，请先重新生成下一版任务");
-  renderDirectorBlindReview();
-  renderDirectorBatchBoard();
   updatePlanEmptyState();
+  runPlanDerivedRefresh();
   updateWorkflowGuide();
+}
+
+function refreshPlanDerivedViews() {
+  const assessment = renderPlanShootReadiness();
+  planGapNavigator.render(assessment);
+  directorItemRunSheetTools.render(assessment);
+  directorMonitorTools.render();
+  directorBlindReview.render();
+  directorBatchTools.render();
+}
+
+function runPlanDerivedRefresh() {
+  refreshPlanDerivedViews();
+  if (!planDerivedRefreshError) return;
+  planDerivedRefreshError = "";
+  renderPlanAsyncFeedback();
+}
+
+function clearPlanToolFeedback() {
+  setNodeText("#director-blind-review-feedback", "");
+  setNodeText("#director-batch-board-feedback", "");
 }
 
 function planMatchesCurrentContext(plan, task, analysis) {
@@ -1552,6 +1725,8 @@ function focusWorkflowTarget(viewId, elementId) {
   switchView(viewId, { focusHeading: !elementId, scrollTop: false });
   if (elementId) {
     const requested = document.getElementById(elementId);
+    const disclosure = requested?.closest?.("details");
+    if (disclosure) disclosure.open = true;
     const describedBy = requested?.disabled ? requested.getAttribute("aria-describedby")?.split(/\s+/)[0] : "";
     const target = describedBy ? document.getElementById(describedBy) : requested;
     focusAndReveal(target);
@@ -1600,7 +1775,7 @@ function renderRecentTask() {
   action.disabled = false;
   const list = $("#director-desk-list");
   list.replaceChildren();
-  const kindLabels = { workflow: "核心流程", experiment: "实验待办", "content-risk": "内容核对" };
+  const kindLabels = { workflow: "策划交付", experiment: "实验待办", "content-risk": "内容核对" };
   for (const item of model.items.slice(1)) {
     const row = element("article", "director-desk-item");
     const copy = element("div", "director-desk-item-copy");
@@ -1627,7 +1802,7 @@ function updateWorkflowGuide() {
   const exported = planned && state.planExported;
   const completed = [reviewed, planned, exported].filter(Boolean).length;
   const progress = $("#workflow-progress");
-  setNodeText("#workflow-progress-label", `核心流程 ${completed} / 3`);
+  setNodeText("#workflow-progress-label", `策划交付 ${completed} / 3`);
   setNodeText("#workflow-task-state", creativeTaskHasContent() ? "创作任务已补充" : "创作任务可跳过");
   $("#workflow-progress-bar").style.width = `${(completed / 3) * 100}%`;
   progress.setAttribute("aria-valuenow", String(completed));
@@ -1648,10 +1823,10 @@ function updateWorkflowGuide() {
     action.dataset.targetView = "next";
     action.dataset.focusId = "copy-run-sheet";
   } else {
-    setNodeText("#workflow-next-step", "本轮已完成。上线后可导入新结果，开始下一轮复盘。");
-    action.textContent = "开始下一轮复盘";
-    action.dataset.targetView = "review";
-    action.dataset.focusId = "report-file-trigger";
+    setNodeText("#workflow-next-step", "策划交付已完成。下一步：进入批次拍摄；每条拍完先现场快检，再撤场接片。");
+    action.textContent = "进入批次拍摄";
+    action.dataset.targetView = "next";
+    action.dataset.focusId = "copy-director-batch-board";
   }
   renderRecentTask();
 }
@@ -2419,8 +2594,11 @@ $("#test-variable").addEventListener("change", () => markPlanStale("测试变量
 $("#min-spend").addEventListener("input", () => markPlanStale("最低测试消耗已变化，请重新生成后再导出。"));
 
 $("#generate-plan").addEventListener("click", async () => {
+  const generateButton = $("#generate-plan");
+  generateButton.disabled = true;
   try {
     const parentVersionId = $("#parent-version").value || null;
+    if (!await planAutosave.flush()) throw new Error("当前方案仍有未保存修改，请先恢复本地存储后再重新生成。");
     await saveCreativeTask({ quiet: true });
     const nextPlan = generateCreativePlan(state.creativeTask, state.analysis, {
       testVariable: $("#test-variable").value,
@@ -2428,25 +2606,27 @@ $("#generate-plan").addEventListener("click", async () => {
     });
     state.plan = nextPlan;
     state.planStale = false;
-    clearPlanExportReceipt();
+    pendingPlanParentVersionId = parentVersionId;
+    clearPlanExportReceipt({ deferProject: true });
     renderPlan(state.plan);
-    let persistenceError = null;
-    try {
-      await chrome.storage.local.set({ creativePlan: state.plan });
-    } catch (error) {
-      persistenceError = error;
+    const generatedRevision = planAutosave.schedule();
+    const saved = await planAutosave.flush();
+    const unchanged = planAutosave.getState().revision === generatedRevision;
+    if (unchanged) {
+      const persistenceError = planAutosave.getState().error;
+      $("#plan-error").textContent = saved ? "" : `任务已生成，当前会话可复制或导出，但未能保存到浏览器：${persistenceError?.message || "本地存储不可用"}`;
+      setStatus("#plan-state", saved ? "已生成并保存" : "已生成 · 未保存", saved);
     }
-    await persistCurrentProject({ syncPlan: true, parentVersionId, quiet: true });
-    $("#plan-error").textContent = persistenceError ? `任务已生成，当前会话可复制或导出，但未能保存到浏览器：${persistenceError.message || "本地存储不可用"}` : "";
-    setStatus("#plan-state", persistenceError ? "已生成 · 未保存" : "已生成", !persistenceError);
     setPlanExportControls(false);
-    $("#copy-state").textContent = "下一步：检查内容，然后复制或导出。";
+    if (unchanged) $("#copy-state").textContent = "下一步：检查内容，然后复制或导出。";
     updateLibraryCounts();
     updatePlanEmptyState();
     updateWorkflowGuide();
     focusAndReveal($("#plan-results"), { block: "start" });
   } catch (error) {
     $("#plan-error").textContent = error.message || "生成失败，请检查复盘数据";
+  } finally {
+    updateReadiness();
   }
 });
 
@@ -2460,17 +2640,6 @@ function editorField(labelText, value, index, path, rows = 2) {
   input.dataset.index = index;
   input.dataset.path = path;
   input.setAttribute("aria-label", `${state.plan?.items?.[index]?.id || `任务 ${index + 1}`}：${labelText}`);
-  input.addEventListener("input", () => {
-    setPlanValue(Number(input.dataset.index), input.dataset.path, input.value);
-    renderPlanShootReadiness();
-    renderDirectorMonitorReadiness();
-    renderDirectorBlindReview();
-    renderDirectorBatchBoard();
-    clearPlanExportReceipt();
-    $("#copy-state").textContent = "方案有未导出的修改；保存后可重新复制或导出。";
-    updateWorkflowGuide();
-    schedulePlanSave();
-  });
   label.append(input);
   return label;
 }
@@ -2484,29 +2653,18 @@ function setPlanValue(index, path, value) {
 }
 
 async function savePlanNow() {
-  try {
-    await chrome.storage.local.set({ creativePlan: state.plan });
-    await persistCurrentProject({ syncPlan: true, quiet: true });
-    $("#plan-error").textContent = "";
-    setStatus("#plan-state", "已保存", true);
-    return true;
-  } catch (error) {
-    setStatus("#plan-state", "保存失败");
-    $("#plan-error").textContent = `当前编辑仍保留在本次会话，但未能保存：${error.message || "本地存储不可用"}`;
-    return false;
-  }
-}
-
-function schedulePlanSave() {
-  setStatus("#plan-state", "保存中…");
-  clearTimeout(planSaveTimer);
-  planSaveTimer = setTimeout(async () => {
-    planSaveTimer = null;
-    await savePlanNow();
-  }, 450);
+  const snapshot = structuredClone(state.plan);
+  const parentVersionId = pendingPlanParentVersionId;
+  await chrome.storage.local.set({ creativePlan: snapshot });
+  await persistCurrentProject({ syncPlan: true, parentVersionId, quiet: true });
+  if (pendingPlanParentVersionId === parentVersionId) pendingPlanParentVersionId = undefined;
+  return true;
 }
 
 function renderPlan(plan) {
+  planInteractionRevision += 1;
+  planDerivedRefresh.cancel();
+  clearPlanToolFeedback();
   $("#plan-batch").textContent = plan.batchId || plan.items[0]?.id.replace(/-(?:B00|A\d{2})$/u, "") || "—";
   $("#plan-baseline").textContent = plan.items[0]?.baselineCreative || "—";
   const firstItem = plan.items[0];
@@ -2527,7 +2685,41 @@ function renderPlan(plan) {
     summary.append(title, element("span", `badge${index === 0 ? "" : " warn"}`, index === 0 ? "先拍" : `第 ${index + 1} 条`));
     card.append(summary);
     const body = element("div", "plan-editor");
+    const executionStrip = element("section", "director-execution-strip");
+    executionStrip.setAttribute("role", "region");
+    executionStrip.setAttribute("aria-labelledby", `director-execution-title-${index}`);
+    const executionHead = element("div", "director-execution-head");
+    const executionTitle = element("strong", "director-execution-title", index === 0 ? "先拍基线" : `第 ${index + 1} 条变体`);
+    executionTitle.id = `director-execution-title-${index}`;
+    executionHead.append(
+      executionTitle,
+      element("small", "director-execution-identity", `${item.id} · ${item.type}`)
+    );
+    const executionVariable = element("p", "director-execution-variable");
+    const executionVariableValue = element("strong", "director-execution-variable-value", `${item.singleVariable || "唯一变量待补"} → ${item.variant || "变量值待补"}`);
+    executionVariableValue.id = `director-execution-variable-value-${index}`;
+    executionVariableValue.dataset.index = String(index);
+    executionVariable.append(
+      element("span", "", "本条只改"),
+      executionVariableValue
+    );
+    const executionLocks = element("p", "director-execution-locks", `其余锁定：${item.fixedElements || "固定项待补"}`);
+    executionLocks.id = `director-execution-locks-${index}`;
+    executionLocks.dataset.index = String(index);
+    const executionActions = element("div", "director-execution-actions");
+    const runSheetTools = element("div", "director-item-run-sheet-tools director-execution-action-group");
+    const runSheetAction = element("button", "secondary director-item-run-sheet-action", "复制本条开拍单");
+    runSheetAction.type = "button";
+    runSheetAction.dataset.index = String(index);
+    runSheetAction.setAttribute("aria-label", `${item.id}：复制本条开拍单`);
+    runSheetAction.setAttribute("aria-describedby", `director-item-run-sheet-state-${index}`);
+    const runSheetState = element("small", "director-item-run-sheet-state", "检查本条现场字段…");
+    runSheetState.id = `director-item-run-sheet-state-${index}`;
+    runSheetState.dataset.index = String(index);
+    runSheetState.setAttribute("role", "status");
+    runSheetState.setAttribute("aria-live", "polite");
     body.append(
+      executionStrip,
       editorField("测试假设", item.hypothesis, index, "hypothesis", 3),
       editorField("基线素材", item.baselineCreative, index, "baselineCreative", 1),
       editorField("变量值", item.variant, index, "variant", 2)
@@ -2554,199 +2746,39 @@ function renderPlan(plan) {
       editorField("合规检查", item.production.complianceChecklist, index, "production.complianceChecklist", 6)
     );
     const monitorTools = element("div", "director-monitor-tools");
+    monitorTools.setAttribute("role", "group");
+    monitorTools.setAttribute("aria-label", `${item.id} 现场监看与回看`);
     const monitorAction = element("button", "secondary director-monitor-action", "复制前三秒监看卡");
     monitorAction.type = "button";
     monitorAction.dataset.index = String(index);
+    monitorAction.setAttribute("aria-label", `${item.id}：复制前三秒监看卡`);
     monitorAction.setAttribute("aria-describedby", `director-monitor-state-${index}`);
-    monitorAction.addEventListener("click", async () => {
-      try {
-        const monitor = buildDirectorMonitorCard(state.plan, { itemIndex: index });
-        await navigator.clipboard.writeText(directorMonitorCardToText(monitor));
-        $("#copy-state").textContent = `已复制 ${monitor.id} 的前三秒现场监看卡；请在手机停帧、真人语速和证据连续性下人工过闸。`;
-      } catch (error) {
-        $("#copy-state").textContent = error.message || "前三秒监看卡复制失败，请补齐现场字段后重试。";
-      }
-    });
     const monitorState = element("small", "director-monitor-state", "检查首帧、口播、字幕与证据承接…");
     monitorState.id = `director-monitor-state-${index}`;
     monitorState.dataset.index = String(index);
-    monitorTools.append(monitorAction, monitorState);
-    body.append(monitorTools);
+    monitorState.setAttribute("role", "status");
+    monitorState.setAttribute("aria-live", "polite");
+    const takeReviewAction = element("button", "secondary director-take-review-action", "复制拍后快检卡");
+    takeReviewAction.type = "button";
+    takeReviewAction.dataset.index = String(index);
+    takeReviewAction.setAttribute("aria-label", `${item.id}：复制拍后快检卡`);
+    takeReviewAction.setAttribute("aria-describedby", `director-take-review-state-${index}`);
+    const takeReviewState = element("small", "director-take-review-state", "检查本条拍后五项快检…");
+    takeReviewState.id = `director-take-review-state-${index}`;
+    takeReviewState.dataset.index = String(index);
+    takeReviewState.setAttribute("role", "status");
+    takeReviewState.setAttribute("aria-live", "polite");
+    runSheetTools.append(runSheetAction, runSheetState);
+    monitorTools.append(monitorAction, monitorState, takeReviewAction, takeReviewState);
+    executionActions.append(runSheetTools, monitorTools);
+    executionStrip.append(executionHead, executionVariable, executionLocks, executionActions);
     card.append(body);
     list.append(card);
   });
-  renderPlanShootReadiness();
-  renderDirectorMonitorReadiness();
-  renderDirectorBlindReview();
-  renderDirectorBatchBoard();
   $("#plan-results").hidden = false;
   updatePlanEmptyState();
+  runPlanDerivedRefresh();
 }
-
-function renderDirectorBlindReview() {
-  const panel = $("#director-blind-review");
-  const packButton = $("#copy-director-blind-review");
-  const keyButton = $("#copy-director-blind-review-key");
-  const decisionButton = $("#copy-director-blind-review-decision");
-  const feedback = $("#director-blind-review-feedback");
-  if (!panel || !packButton || !keyButton || !decisionButton) return null;
-  feedback.textContent = "";
-  if (!state.plan?.items?.length) {
-    packButton.disabled = true;
-    keyButton.disabled = true;
-    decisionButton.disabled = true;
-    setNodeText("#director-blind-review-state", "等待方案");
-    setNodeText("#director-blind-review-summary", "至少需要两条字段完整的同批方案。");
-    return null;
-  }
-  if (state.planStale) {
-    packButton.disabled = true;
-    keyButton.disabled = true;
-    decisionButton.disabled = true;
-    setNodeText("#director-blind-review-state", "方案已过期");
-    setNodeText("#director-blind-review-summary", "当前上下文已经变化，请重新生成方案后再发起盲审。");
-    return null;
-  }
-  try {
-    const review = buildDirectorBlindReview(state.plan);
-    const ready = review.copyable === true;
-    packButton.disabled = !ready;
-    keyButton.disabled = !ready;
-    decisionButton.disabled = !ready;
-    setNodeText("#director-blind-review-state", ready ? `${review.cards.length} 条 · 已匿名打乱` : `待补 ${review.blockers.length} 项`);
-    setNodeText("#director-blind-review-summary", ready
-      ? `${review.reviewId} · 匿名包不含测试编号、基线身份、来源素材或历史指标；编辑方案后编号会变化。`
-      : `盲审包暂不可用：${review.blockers.slice(0, 3).join("；")}${review.blockers.length > 3 ? `；另有 ${review.blockers.length - 3} 项` : ""}`);
-    return review;
-  } catch (error) {
-    packButton.disabled = true;
-    keyButton.disabled = true;
-    decisionButton.disabled = true;
-    setNodeText("#director-blind-review-state", "暂不可用");
-    setNodeText("#director-blind-review-summary", error.message || "当前方案无法安全生成盲审包。");
-    return null;
-  }
-}
-
-function renderDirectorBatchBoard() {
-  const boardButton = $("#copy-director-batch-board");
-  const assemblyButton = $("#copy-director-edit-assembly");
-  const feedback = $("#director-batch-board-feedback");
-  if (!boardButton || !assemblyButton || !feedback) return null;
-  feedback.textContent = "";
-  if (!state.plan?.items?.length) {
-    boardButton.disabled = true;
-    assemblyButton.disabled = true;
-    setNodeText("#director-batch-board-state", "等待方案");
-    setNodeText("#director-batch-board-summary", "至少需要两条字段完整、变量唯一且固定项一致的同批方案。");
-    return null;
-  }
-  if (state.planStale) {
-    boardButton.disabled = true;
-    assemblyButton.disabled = true;
-    setNodeText("#director-batch-board-state", "方案已过期");
-    setNodeText("#director-batch-board-summary", "当前上下文已经变化，请重新生成方案后再编排批次镜头。");
-    return null;
-  }
-  try {
-    const board = buildDirectorBatchBoard(state.plan);
-    const ready = board.copyable === true;
-    boardButton.disabled = !ready;
-    assemblyButton.disabled = !ready;
-    setNodeText("#director-batch-board-state", ready ? `${board.total} 条 · 只改${board.variableLabel}` : `待修正 ${board.blockers.length} 项`);
-    setNodeText("#director-batch-board-summary", ready
-      ? `先拍 B00，再共用 ${board.sharedShots.length} 组骨架并完成 ${Math.max(0, board.entries.length - 1)} 条变体插拍；现场仍需人工确认连续性。`
-      : `镜头板暂不可用：${board.blockers.slice(0, 3).join("；")}${board.blockers.length > 3 ? `；另有 ${board.blockers.length - 3} 项` : ""}`);
-    return board;
-  } catch (error) {
-    boardButton.disabled = true;
-    assemblyButton.disabled = true;
-    setNodeText("#director-batch-board-state", "暂不可用");
-    setNodeText("#director-batch-board-summary", error.message || "当前方案无法安全编排共用镜头。");
-    return null;
-  }
-}
-
-function renderDirectorMonitorReadiness() {
-  for (const button of document.querySelectorAll(".director-monitor-action")) {
-    const index = Number(button.dataset.index);
-    const status = $(`#director-monitor-state-${index}`);
-    try {
-      const monitor = buildDirectorMonitorCard(state.plan, { itemIndex: index });
-      button.disabled = !monitor.copyable;
-      button.dataset.ready = String(monitor.copyable);
-      button.textContent = monitor.copyable ? "复制前三秒监看卡" : `监看卡待补 ${monitor.missing.length} 项`;
-      if (status) {
-        status.dataset.ready = String(monitor.copyable);
-        status.textContent = monitor.copyable
-          ? monitor.warnings.length
-            ? `可复制 · ${monitor.warnings.length} 项开机前提醒`
-            : "可复制 · 首帧、口播、字幕与证据字段已齐"
-          : `待补：${monitor.missing.join("、")}`;
-      }
-    } catch (error) {
-      button.disabled = true;
-      button.dataset.ready = "false";
-      button.textContent = "监看卡暂不可用";
-      if (status) status.textContent = error.message || "当前方案无法生成监看卡";
-    }
-  }
-}
-
-$("#copy-director-blind-review").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    const review = buildDirectorBlindReview(state.plan);
-    await navigator.clipboard.writeText(directorBlindReviewPackToText(review));
-    $("#director-blind-review-feedback").textContent = `已复制匿名盲审包 ${review.reviewId}；请先收齐并锁定反馈，再揭示导演映射。`;
-  } catch (error) {
-    $("#director-blind-review-feedback").textContent = error.message || "匿名盲审包复制失败，请检查字段与剪贴板权限。";
-  }
-});
-
-$("#copy-director-blind-review-key").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    const review = buildDirectorBlindReview(state.plan);
-    await navigator.clipboard.writeText(directorBlindReviewKeyToText(review));
-    $("#director-blind-review-feedback").textContent = `已复制导演映射 ${review.reviewId}；请勿发给评审者，并确认编号与盲审包一致。`;
-  } catch (error) {
-    $("#director-blind-review-feedback").textContent = error.message || "导演映射复制失败，请重新生成当前盲审包。";
-  }
-});
-
-$("#copy-director-blind-review-decision").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    const review = buildDirectorBlindReview(state.plan);
-    await navigator.clipboard.writeText(directorBlindReviewDecisionSheetToText(review));
-    $("#director-blind-review-feedback").textContent = `已复制导演合议单 ${review.reviewId}；请先填回收事实，再在保留、单变量重写和淘汰中三选一。`;
-  } catch (error) {
-    $("#director-blind-review-feedback").textContent = error.message || "导演合议单复制失败，请确认盲审包与映射仍为同一编号。";
-  }
-});
-
-$("#copy-director-batch-board").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    const board = buildDirectorBatchBoard(state.plan);
-    await navigator.clipboard.writeText(directorBatchBoardToText(board));
-    $("#director-batch-board-feedback").textContent = `已复制 ${board.batchId} 的批次共用镜头板；请先锁定 B00，再按场记编号拍 ${Math.max(0, board.entries.length - 1)} 条变量插条。`;
-  } catch (error) {
-    $("#director-batch-board-feedback").textContent = error.message || "批次共用镜头板复制失败，请检查单变量与现场字段。";
-  }
-});
-
-$("#copy-director-edit-assembly").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    const board = buildDirectorBatchBoard(state.plan);
-    await navigator.clipboard.writeText(directorBatchEditAssemblyToText(board));
-    $("#director-batch-board-feedback").textContent = `已复制 ${board.batchId} 的批次剪辑装配单；请先锁定 B00 时间轴，再逐个替换 ${Math.max(0, board.entries.length - 1)} 条变体的专属素材。`;
-  } catch (error) {
-    $("#director-batch-board-feedback").textContent = error.message || "批次剪辑装配单复制失败，请检查变量边界与现场字段。";
-  }
-});
 
 function renderPlanShootReadiness() {
   const notice = $("#plan-production-readiness");
@@ -2754,7 +2786,7 @@ function renderPlanShootReadiness() {
     if (notice) {
       notice.className = "notice compact";
       notice.dataset.ready = "false";
-      notice.textContent = "生成并检查方案后，这里会列出是否具备现场执行所需内容。";
+      setElementText(notice, "生成并检查方案后，这里会列出是否具备现场执行所需内容。");
     }
     return null;
   }
@@ -2763,27 +2795,25 @@ function renderPlanShootReadiness() {
   notice.dataset.ready = String(assessment.ready);
   const incomplete = assessment.items.filter((item) => !item.ready);
   const preview = incomplete.slice(0, 3).map((item) => `${item.id}：${item.missing.join("、")}`).join("；");
-  notice.textContent = assessment.ready
+  setElementText(notice, assessment.ready
     ? `开拍准备：${assessment.readyCount} / ${assessment.total} 条内容已齐。仍需编导现场核对事实、授权与表达。`
-    : `开拍准备：${assessment.readyCount} / ${assessment.total} 条内容已齐，共待补 ${assessment.missingCount} 项。${preview}${incomplete.length > 3 ? `；另有 ${incomplete.length - 3} 条` : ""}。复制前会再次确认。`;
+    : `开拍准备：${assessment.readyCount} / ${assessment.total} 条内容已齐，共待补 ${assessment.missingCount} 项。${preview}${incomplete.length > 3 ? `；另有 ${incomplete.length - 3} 条` : ""}。复制前会再次确认。`);
   for (const node of document.querySelectorAll(".plan-card-readiness")) {
     const item = assessment.items[Number(node.dataset.index)];
     node.dataset.ready = String(item?.ready || false);
-    node.textContent = item?.ready ? "开拍项已齐" : `待补 ${item?.missing.length || 0} 项 · ${item?.missing.join("、") || "请检查"}`;
+    setElementText(node, item?.ready ? "开拍项已齐" : `待补 ${item?.missing.length || 0} 项 · ${item?.missing.join("、") || "请检查"}`);
   }
   return assessment;
 }
 
 $("#copy-plan").addEventListener("click", async () => {
-  if (!state.plan || state.planStale) return;
-  try {
-    await navigator.clipboard.writeText(planToMarkdown(state.plan));
-    $("#copy-state").textContent = "已复制完整策略、脚本、分镜与任务单。";
-    await markPlanCompleted();
-    updateWorkflowGuide();
-  } catch {
-    $("#copy-state").textContent = "复制失败，请改用 Markdown 导出。";
-  }
+  await planOutputController.copy({
+    label: "完整方案",
+    createContent: () => planToMarkdown(state.plan),
+    successMessage: "已复制完整策略、脚本、分镜与任务单。",
+    failureMessage: "复制失败，请改用 Markdown 导出。",
+    completionFailureMessage: "完整方案已复制，但完成状态未能保存；请重试复制或导出。"
+  });
 });
 
 $("#copy-run-sheet").addEventListener("click", async () => {
@@ -2793,22 +2823,25 @@ $("#copy-run-sheet").addEventListener("click", async () => {
     const gaps = readiness.items.filter((item) => !item.ready).slice(0, 3).map((item) => `${item.id}：${item.missing.join("、")}`).join("；");
     if (!window.confirm(`当前开拍清单仍有 ${readiness.missingCount} 项待补：${gaps}${readiness.items.filter((item) => !item.ready).length > 3 ? "；还有其他任务待补" : ""}。是否仍要复制给现场？`)) return;
   }
-  try {
-    await navigator.clipboard.writeText(planToRunSheet(state.plan));
-    $("#copy-state").textContent = "已复制现场开拍清单；请按基线 → 变体顺序执行，并保持非测试条件一致。";
-    await markPlanCompleted();
-    updateWorkflowGuide();
-  } catch {
-    $("#copy-state").textContent = "开拍清单复制失败，请改用完整方案或 Markdown 导出。";
-  }
+  await planOutputController.copy({
+    label: "现场开拍清单",
+    createContent: () => planToRunSheet(state.plan),
+    successMessage: "已复制现场开拍清单；请按基线 → 变体顺序执行，并保持非测试条件一致。",
+    failureMessage: "开拍清单复制失败，请改用完整方案或 Markdown 导出。",
+    completionFailureMessage: "开拍清单已复制，但完成状态未能保存；请重试复制或导出。"
+  });
 });
 
 async function exportPlan(name, createContent, type, label) {
-  if (!state.plan || state.planStale) return;
-  download(name, createContent(), type);
-  await markPlanCompleted();
-  $("#copy-state").textContent = `已导出 ${label}；本轮核心流程完成。`;
-  updateWorkflowGuide();
+  return planOutputController.exportFile({
+    name,
+    createContent,
+    type,
+    label,
+    successMessage: `已导出 ${label}；本轮策划交付完成，请进入批次拍摄。`,
+    failureMessage: `${label} 导出失败，请重试。`,
+    completionFailureMessage: `${label} 已导出，但完成状态未能保存；请重试导出。`
+  });
 }
 
 $("#export-plan-md").addEventListener("click", () => exportPlan("next-creative-plan.md", () => planToMarkdown(state.plan), "text/markdown;charset=utf-8", "Markdown"));

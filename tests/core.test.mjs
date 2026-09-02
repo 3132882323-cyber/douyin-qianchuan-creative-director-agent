@@ -154,6 +154,26 @@ test("builds an on-set run sheet that keeps baseline-first single-variable disci
   assert.throws(() => planToRunSheet({ items: [] }), /可执行任务/u);
 });
 
+test("fails closed when run-sheet identities contradict baseline-first sequence", () => {
+  const analysis = analyzeReport(parseCsv(reportText), 1.5);
+  const plan = generateCreativePlan(creativeTask, analysis, { testVariable: "hook", minSpend: 500 });
+  const corruptions = [
+    (draft) => { draft.items[0].id = draft.items[0].id.replace(/-B00$/u, "-A99"); },
+    (draft) => { draft.items[1].id = draft.items[0].id; },
+    (draft) => { draft.items[1].id = draft.items[1].id.replace(/-A01$/u, "-A02"); },
+    (draft) => { draft.items[0].type = "变体"; },
+    (draft) => { draft.batchId = `${draft.batchId}-OTHER`; }
+  ];
+  for (const corrupt of corruptions) {
+    const malformed = structuredClone(plan);
+    corrupt(malformed);
+    const readiness = assessPlanShootReadiness(malformed);
+    assert.equal(readiness.ready, false);
+    assert.ok(readiness.items.every((item) => item.missing.includes("版本身份与顺序")));
+    assert.throws(() => planToRunSheet(malformed, { itemIndex: 0 }), /版本身份或顺序无效/u);
+  }
+});
+
 test("reports shoot-readiness gaps without changing the editable plan", () => {
   const analysis = analyzeReport(parseCsv(reportText), 1.5);
   const plan = generateCreativePlan(creativeTask, analysis, { testVariable: "scene", minSpend: 400 });
@@ -170,6 +190,17 @@ test("reports shoot-readiness gaps without changing the editable plan", () => {
   assert.equal(incomplete.readyCount, plan.items.length - 1);
   assert.equal(incomplete.missingCount, 2);
   assert.deepEqual(incomplete.items[1].missing, ["前三秒钩子", "剪辑要求"]);
+  assert.deepEqual(incomplete.items[1].missingFields, [
+    { path: "hook", label: "前三秒钩子" },
+    { path: "production.editingNotes", label: "剪辑要求" }
+  ]);
+
+  plan.items[2].singleVariable = "";
+  plan.items[2].variant = "待确认";
+  plan.items[2].fixedElements = "";
+  const disciplineGaps = assessPlanShootReadiness(plan).items[2];
+  assert.equal(disciplineGaps.ready, false);
+  assert.deepEqual(disciplineGaps.missing, ["唯一变量", "变量值", "固定项"]);
   assert.throws(() => assessPlanShootReadiness({ items: [] }), /开拍准备检查/u);
 });
 

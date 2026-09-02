@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createLatestOperationGuard } from "../src/operation-guard.js";
+import { createLatestOperationGuard, createRevisionOperationGuard } from "../src/operation-guard.js";
 
 test("only accepts the latest operation in one scope", () => {
   const guard = createLatestOperationGuard();
@@ -36,4 +36,38 @@ test("rejects ambiguous or unbounded operation scopes", () => {
   const guard = createLatestOperationGuard();
   assert.throws(() => guard.begin(""), /范围无效/u);
   assert.throws(() => guard.cancel("../../reset"), /范围无效/u);
+});
+
+test("invalidates delayed output when its revision or availability changes", () => {
+  let revision = 4;
+  let available = true;
+  const guard = createRevisionOperationGuard({ getRevision: () => revision, isAvailable: () => available });
+  const first = guard.begin();
+  assert.equal(guard.isCurrent(first), true);
+  revision += 1;
+  assert.equal(guard.isLatest(first), true);
+  assert.equal(guard.isCurrent(first), false);
+  const second = guard.begin();
+  assert.equal(guard.isLatest(first), false);
+  assert.equal(guard.isCurrent(second), true);
+  const third = guard.begin();
+  assert.equal(guard.isLatest(second), false);
+  assert.equal(guard.matchesRevision(second), true);
+  assert.equal(guard.isCurrent(third), true);
+  available = false;
+  assert.equal(guard.isCurrent(third), false);
+  guard.invalidate();
+  assert.equal(guard.isLatest(third), false);
+  assert.equal(guard.matchesRevision({ sequence: second.sequence, revision: second.revision }), false);
+});
+
+test("fails closed for invalid revision readers", () => {
+  assert.throws(() => createRevisionOperationGuard(), /参数无效/u);
+  const guard = createRevisionOperationGuard({ getRevision: () => "not-a-revision" });
+  assert.throws(() => guard.begin(), /修订号无效/u);
+  let invalid = false;
+  const changing = createRevisionOperationGuard({ getRevision: () => invalid ? -1 : 0 });
+  const token = changing.begin();
+  invalid = true;
+  assert.equal(changing.isCurrent(token), false);
 });

@@ -56,8 +56,8 @@
     </nav>
 
     <aside class="workflow-guide" aria-label="当前工作进度">
-      <div class="workflow-guide-head"><strong id="workflow-progress-label">核心流程 0 / 3</strong><span id="workflow-task-state">创作任务可跳过</span></div>
-      <div id="workflow-progress" class="workflow-meter" role="progressbar" aria-label="核心工作流进度" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><span id="workflow-progress-bar"></span></div>
+      <div class="workflow-guide-head"><strong id="workflow-progress-label">策划交付 0 / 3</strong><span id="workflow-task-state">创作任务可跳过</span></div>
+      <div id="workflow-progress" class="workflow-meter" role="progressbar" aria-label="策划交付进度" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><span id="workflow-progress-bar"></span></div>
       <p id="workflow-next-step" role="status" aria-live="polite">下一步：导入历史素材并完成复盘。</p>
       <button id="workflow-next-action" type="button" class="secondary">去导入历史素材</button>
     </aside>
@@ -322,27 +322,30 @@
             <p id="plan-shoot-order">先拍基线，再按编号拍变体；下面所有内容都可以直接编辑，修改会自动保存在当前浏览器。</p>
           </div>
           <div id="plan-production-readiness" class="notice compact" role="status" aria-live="polite">生成并检查方案后，这里会列出是否具备现场执行所需内容。</div>
+          <button id="focus-plan-gap" type="button" class="secondary plan-gap-action" aria-describedby="plan-production-readiness" hidden disabled>等待方案</button>
           <details id="director-blind-review" class="director-blind-review">
-            <summary><span>前三秒拍前盲审</span><small id="director-blind-review-state">匿名打乱 · 反馈后揭晓</small></summary>
+            <summary><span>前三秒拍前盲审</span><small id="director-blind-review-state">1 盲审 · 2 揭晓 · 3 合议</small></summary>
             <div class="director-blind-review-body">
-              <p class="helper">隐藏测试编号、基线身份、来源素材和历史指标，只让评审者比较首帧、钩子、字幕与证据预期。请先锁定反馈，再单独查看导演映射。</p>
+              <p class="helper">严格按顺序使用：先发匿名包并锁定反馈，再由导演单独揭晓映射，最后用合议单收口。匿名包隐藏测试编号、基线身份、来源素材和历史指标。</p>
               <p id="director-blind-review-summary" class="director-blind-review-summary">至少需要两条字段完整的同批方案。</p>
               <div class="director-blind-review-actions">
-                <button id="copy-director-blind-review" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>复制匿名盲审包</button>
-                <button id="copy-director-blind-review-key" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>复制导演映射</button>
-                <button id="copy-director-blind-review-decision" type="button" class="secondary director-blind-review-decision" aria-describedby="director-blind-review-summary" disabled>复制盲审后导演合议单</button>
+                <button id="copy-director-blind-review" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>1 · 复制匿名盲审包</button>
+                <button id="copy-director-blind-review-key" type="button" class="secondary" aria-describedby="director-blind-review-summary" disabled>2 · 复制导演映射</button>
+                <button id="copy-director-blind-review-decision" type="button" class="secondary director-blind-review-decision" aria-describedby="director-blind-review-summary" disabled>3 · 复制导演合议单</button>
               </div>
               <p id="director-blind-review-feedback" class="director-blind-review-feedback" role="status" aria-live="polite"></p>
             </div>
           </details>
           <details id="director-batch-board" class="director-batch-board">
-            <summary><span>批次共用镜头板</span><small id="director-batch-board-state">共用骨架 · 变量插拍</small></summary>
+            <summary><span>批次拍摄与成片交付</span><small id="director-batch-board-state">1 拍摄 · 2 接片 · 3 剪辑 · 4 验收</small></summary>
             <div class="director-batch-board-body">
-              <p class="helper">先拍并锁定 B00 全流程母版，再只拍一次共用骨架、逐版本补变量插条。演员、机位、光线、证据条件或行动引导发生漂移时会停止导出。</p>
+              <p class="helper">按生产阶段依次使用：先锁定 B00 并拍摄变量插条，撤场前用接片单登记实际文件与人工选定 Take，再交付剪辑装配，最后逐版验收成片。四个动作共用同一套单变量检查；演员、机位、光线、证据条件或行动引导发生漂移时全部停止导出。</p>
               <p id="director-batch-board-summary" class="director-batch-board-summary">至少需要两条字段完整、变量唯一且固定项一致的同批方案。</p>
               <div class="director-batch-board-actions">
-                <button id="copy-director-batch-board" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>复制拍摄镜头板</button>
-                <button id="copy-director-edit-assembly" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>复制剪辑装配单</button>
+                <button id="copy-director-batch-board" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>1 · 复制拍摄镜头板</button>
+                <button id="copy-director-take-handoff" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>2 · 复制收工接片单</button>
+                <button id="copy-director-edit-assembly" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>3 · 复制剪辑装配单</button>
+                <button id="copy-director-cut-review" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>4 · 复制成片验收单</button>
               </div>
               <p id="director-batch-board-feedback" class="director-batch-board-feedback" role="status" aria-live="polite"></p>
             </div>

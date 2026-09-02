@@ -1,3 +1,5 @@
+import { assessPlanShootReadiness } from "./core.js";
+
 export const DIRECTOR_MONITOR_LIMITS = Object.freeze({
   maxItems: 100,
   maxFieldLength: 6000,
@@ -66,6 +68,7 @@ export function buildDirectorMonitorCard(plan, { itemIndex } = {}) {
     throw new Error("前三秒监看卡缺少有效拍摄任务");
   }
   if (!Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= source.items.length) throw new Error("前三秒监看卡任务序号无效");
+  const identityReady = !assessPlanShootReadiness(source).items[itemIndex]?.missing.includes("版本身份与顺序");
   const item = record(source.items[itemIndex], "拍摄任务");
   const production = record(item.production, "拍摄任务生产资料");
   const id = safeText(item.id, "测试编号", 128) || `任务 ${itemIndex + 1}`;
@@ -82,6 +85,7 @@ export function buildDirectorMonitorCard(plan, { itemIndex } = {}) {
   const proofCue = firstMatchingLine(production.shootingTask, /(?:证据|实测|过程|细节|对比|特写|核验)/u);
   const editingBridge = inlineText(safeText(production.editingNotes, "剪辑要求", 2400));
   const missing = [];
+  if (!identityReady) missing.push("版本身份与顺序");
   requiredValue(hook, "前三秒钩子", missing);
   requiredValue(audience, "目标受众", missing);
   requiredValue(scene, "拍摄场景", missing);

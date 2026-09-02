@@ -9,7 +9,8 @@ const VARIABLE_DEFINITIONS = Object.freeze({
     assembly: {
       variableWindow: "0.0–3.0 秒的首帧、钩子口播与首屏字幕",
       commonSpine: "第 3 秒确认转接点之后的问题—证据—行动主体段，以及不含钩子的证据补拍与结尾净版",
-      guard: "每个版本的首帧、钩子口播和首屏字幕必须成组使用，禁止只换字幕或把其他版本的开场音频接进来。"
+      guard: "每个版本的首帧、钩子口播和首屏字幕必须成组使用，禁止只换字幕或把其他版本的开场音频接进来。",
+      reviewFocus: "静音停帧先验收首帧和首屏字幕，再开声音核对钩子口播；第 3 秒必须自然接回同一证据骨架，不能残留 B00 或其他变体开场。"
     },
     sharedShots: [
       "先按 B00 完整拍一条全流程母版，锁定演员、机位、光线、证据、时长与行动引导。",
@@ -24,7 +25,8 @@ const VARIABLE_DEFINITIONS = Object.freeze({
     assembly: {
       variableWindow: "主张第一次出现起，直到对应证据条件、过程与结果完整落地",
       commonSpine: "不承载具体主张的场景建立、中性过程、环境声与结尾净版；具体证据是否可共用必须逐条人工确认",
-      guard: "主张口播、主张字幕和支持该主张的证据必须成组锁定，禁止把另一主张的结论贴到同一证据上。"
+      guard: "主张口播、主张字幕和支持该主张的证据必须成组锁定，禁止把另一主张的结论贴到同一证据上。",
+      reviewFocus: "逐字核对主张口播与字幕，再完整观看证据条件、过程和结果；证据不足时只能返剪降级表达或补拍，不能用另一主张的证据补结论。"
     },
     sharedShots: [
       "先按 B00 完整拍一条全流程母版，锁定前三秒、受众、场景、演员、机位、时长与行动引导。",
@@ -39,7 +41,8 @@ const VARIABLE_DEFINITIONS = Object.freeze({
     assembly: {
       variableWindow: "场景建立、人物在场动作、环境声及所有依赖该环境的证据衔接",
       commonSpine: "只有与具体环境无关、连续性可人工证明的证据特写、标准口播音频和结尾净版可列为候选共用素材",
-      guard: "不得用裁切、放大或无关特写伪装场景变化；曝光、白平衡、收音或道具连续性不一致时按独立版本处理。"
+      guard: "不得用裁切、放大或无关特写伪装场景变化；曝光、白平衡、收音或道具连续性不一致时按独立版本处理。",
+      reviewFocus: "先确认场景在首秒可识别，再检查人物动作、道具、曝光、白平衡和环境声连续；任何靠裁切掩盖的假场景变化都退回重剪或补拍。"
     },
     sharedShots: [
       "先拍 B00 完整场景母版，锁定受众、钩子、主张、证据口径、时长与行动引导。",
@@ -54,7 +57,8 @@ const VARIABLE_DEFINITIONS = Object.freeze({
     assembly: {
       variableWindow: "受众称呼、问题触发、人物反应和任何直接指向该受众的字幕或口播",
       commonSpine: "不包含特定受众称呼的证据全程、细节特写、环境空镜和结尾净版",
-      guard: "称呼、问题、人物反应与首屏字幕必须来自同一受众版本，禁止只替换人群标签而保留不匹配的表演。"
+      guard: "称呼、问题、人物反应与首屏字幕必须来自同一受众版本，禁止只替换人群标签而保留不匹配的表演。",
+      reviewFocus: "分别核对受众称呼、问题触发、人物反应和首屏字幕；只换人群名但表演、场景或问题仍指向另一受众时不得通过。"
     },
     sharedShots: [
       "先按 B00 完整拍一条母版，锁定钩子、主张、场景、证据、机位、时长与行动引导。",
@@ -126,16 +130,18 @@ export function buildDirectorBatchBoard(plan) {
   if (!definition) throw new Error("批次共用镜头板无法识别本轮唯一变量");
   const blockers = monitors.flatMap((monitor) => monitor.missing.map((field) => `${monitor.id}：${field}`));
   const firstId = monitors[0].id;
-  if (!/(?:^|[-_.:])B00$/iu.test(firstId) && text(items[0].type, 80) !== "基线") blockers.push(`${firstId}：首条任务不是明确的 B00 基线`);
   const sourceBatchId = text(source.batchId, 160);
+  const identityBatchId = sourceBatchId || firstId.replace(/-(?:B00|A\d{2})$/iu, "");
   const seenIds = new Set();
   for (let index = 0; index < monitors.length; index += 1) {
     const id = monitors[index].id;
     const idKey = comparisonKey(id);
     if (seenIds.has(idKey)) blockers.push(`${id}：测试编号重复，无法生成唯一场记`);
     seenIds.add(idKey);
-    if (sourceBatchId && !id.startsWith(`${sourceBatchId}-`)) blockers.push(`${id}：测试编号不属于当前批次 ${sourceBatchId}`);
-    if (index > 0 && (!/(?:^|[-_.:])A\d{2}$/iu.test(id) || text(items[index].type, 80) !== "变体")) blockers.push(`${id}：变体必须使用 A01 起的明确编号并标记为变体`);
+    const expectedId = index === 0 ? `${identityBatchId}-B00` : `${identityBatchId}-A${String(index).padStart(2, "0")}`;
+    const expectedType = index === 0 ? "基线" : "变体";
+    if (id !== expectedId) blockers.push(`${id}：测试编号顺序无效，应为 ${expectedId}`);
+    if (text(items[index].type, 80) !== expectedType) blockers.push(`${id}：第 ${index + 1} 条任务必须标记为${expectedType}`);
   }
   const declaredVariables = new Set(items.map((item) => VARIABLE_LABELS[text(item.singleVariable, 80)] || ""));
   if (declaredVariables.size !== 1 || !declaredVariables.has(definitionCode)) blockers.push("同批方案声明的唯一变量不一致");
@@ -162,11 +168,15 @@ export function buildDirectorBatchBoard(plan) {
     if (!declaredValue || comparisonKey(declaredValue) !== key) blockers.push(`${monitors[index].id}：方案变量值与${definition.label}字段不一致`);
     if (key && valueKeys.has(key)) blockers.push(`${monitors[index].id}：与 ${valueKeys.get(key)} 使用了重复变量值`);
     else if (key) valueKeys.set(key, monitors[index].id);
-    return {
+    const entry = {
       id: monitors[index].id,
       type: monitors[index].type,
       orderLabel: monitors[index].orderLabel,
       value,
+      audience: monitors[index].audience,
+      hook: monitors[index].beats.hook,
+      claim: fieldValue(item, "claim"),
+      scene: monitors[index].scene,
       firstFrame: monitors[index].beats.firstFrame,
       spokenOpening: monitors[index].beats.spokenOpening,
       subtitleCue: monitors[index].beats.subtitleCue,
@@ -176,6 +186,8 @@ export function buildDirectorBatchBoard(plan) {
       requiresReshoot: index !== 0,
       uniqueInstruction: ""
     };
+    for (const field of [entry.firstFrame, entry.spokenOpening, entry.subtitleCue, entry.proofCue, entry.editingBridge]) text(field);
+    return entry;
   });
   for (const entry of entries) {
     entry.uniqueInstruction = entry.requiresReshoot
@@ -323,6 +335,98 @@ export function directorBatchEditAssemblyToText(board) {
     "6. 随机抽查至少一个 A 编号版本，关闭画面或声音分别核对，确认没有残留 B00 或其他变体的变量片段。",
     "",
     "> 本装配单只重排当前本地方案，不读取或分析媒体、不操作剪辑软件、不批量改名、不自动导出，也不判断创意效果；装配、连续性、事实和授权必须由编导与剪辑师共同确认。"
+  );
+  return lines.join("\n");
+}
+
+export function directorBatchCutReviewToText(board) {
+  const source = record(board, "批次成片验收单");
+  if (
+    source.copyable !== true
+    || !Array.isArray(source.entries)
+    || source.entries.length < DIRECTOR_BATCH_BOARD_LIMITS.minItems
+    || source.entries.length > DIRECTOR_BATCH_BOARD_LIMITS.maxItems
+    || !Array.isArray(source.sharedLocks)
+    || !source.assembly
+    || typeof source.assembly !== "object"
+    || Array.isArray(source.assembly)
+  ) {
+    throw new Error(`批次成片验收单仍待修正：${Array.isArray(source.blockers) && source.blockers.length ? source.blockers.join("；") : "单变量或现场字段不完整"}`);
+  }
+  const batchId = text(source.batchId, 160);
+  const reviewFocus = text(source.assembly.reviewFocus);
+  const guard = text(source.assembly.guard);
+  if (!batchId || !reviewFocus || !guard) throw new Error("批次成片验收单缺少人工验收边界");
+  const locks = source.sharedLocks.map((item) => `${text(item.label, 80)}：${text(item.value)}`).join("；");
+  const lines = [
+    `# 批次成片验收单 · ${batchId}`,
+    "",
+    `- 本轮唯一变量：${text(source.variableLabel, 80)}`,
+    `- 验收顺序：先独立验收 B00，再逐条独立验收 ${Math.max(0, source.entries.length - 1)} 个变体；独立判断填写完成后才能与 B00 并排比较。`,
+    "- 决策范围：每条成片只能人工选择“通过交付 / 退回剪辑 / 需要补拍”之一；本单不自动评分、投票、选优或修改制作状态。",
+    `- 本轮固定项：${locks}`,
+    `- 变量专项：${reviewFocus}`,
+    `- 防串版底线：${guard}`,
+    "",
+    "## 验收环境",
+    "",
+    "- [ ] 使用真实交付画幅和手机尺寸观看，不用编辑器大窗口代替终端体验。",
+    "- [ ] 先静音看 0–1 秒，再打开声音看 0–3 秒，最后完整播放；每轮观看只记录事实，不边看边改结论。",
+    "- [ ] 核对导出文件名、测试编号和版本号；文件名含“最终版”“最新版”或无法对应测试编号时先退回整理。",
+    "- [ ] 事实、数据、资质、版权、肖像和素材授权已由负责人单独核对；本单不能证明授权或平台合规。",
+    "",
+    "## 逐版本验收",
+    ""
+  ];
+  for (const entry of source.entries) {
+    lines.push(
+      `### ${text(entry.orderLabel, 80)} · ${text(entry.id, 160)} · ${text(entry.type, 80)}`,
+      "",
+      `- 计划导出名：${text(entry.id, 160)}__V01；实际文件：________；验收版本：________`,
+      `- 唯一变量值：${text(entry.value)}`,
+      `- 目标受众：${text(entry.audience)}`,
+      `- 拍摄场景：${text(entry.scene)}`,
+      `- 计划钩子：${text(entry.hook)}`,
+      `- 核心主张：${text(entry.claim)}`,
+      "",
+      "#### 第一遍 · 静音 0–1 秒",
+      "",
+      `- 计划首帧：${text(entry.firstFrame)}`,
+      `- 计划首屏字幕：${text(entry.subtitleCue)}`,
+      "- [ ] 一秒内能复述受众、问题、动作或结果中的至少两项，且画面只有一个主要信息焦点。",
+      "- [ ] 首屏字幕在真实手机尺寸清晰可扫读，不遮挡主体、关键证据或平台安全区。",
+      "",
+      "#### 第二遍 · 有声 0–3 秒",
+      "",
+      `- 计划口播首句：${text(entry.spokenOpening)}`,
+      "- [ ] 首帧、字幕和口播表达同一个钩子，真人语速自然，三秒内没有引入第二个主题。",
+      "- [ ] 没有残留 B00 或其他变体的画面、声音、字幕、贴纸、文件名或占位标记。",
+      "",
+      "#### 第三遍 · 完整播放",
+      "",
+      `- 计划证据：${text(entry.proofCue)}`,
+      `- 计划承接：${text(entry.editingBridge)}`,
+      "- [ ] 第三秒自然进入证据，条件、过程、结果连续可见；转场没有掩盖动作、光线、收音或事实断裂。",
+      "- [ ] 与 B00 相比只改变声明变量及其必要呈现；时长、行动引导和保持不变项没有悄悄漂移。",
+      "- [ ] 画幅、清晰度、音量、字幕安全区、黑帧、空帧、结尾净版和行动引导已按真实交付规格检查。",
+      "",
+      "#### 人工结论 · 必须三选一",
+      "",
+      "- [ ] 通过交付：文件名与版本 ________；通过人 ________；时间 ________",
+      "- [ ] 退回剪辑：时间码 ________；事实问题 ________；只允许修改 ________；负责人/期限 ________",
+      "- [ ] 需要补拍：缺失镜头或证据 ________；无法靠剪辑修复的原因 ________；负责人/期限 ________",
+      "- 复验记录：版本 ________；原问题是否关闭 ________；新增问题 ________",
+      ""
+    );
+  }
+  lines.push(
+    "## 批次收口",
+    "",
+    "- [ ] 每个测试编号只有一个明确通过版本；退回版、补拍版和旧导出没有混入交付目录。",
+    "- [ ] 随机抽查一个变体，与 B00 逐段并排核对，确认没有第二个创意变量或其他版本素材残留。",
+    "- [ ] 只有人工标记“通过交付”的文件才交给操盘手；复制本单或填写结论不会自动改变扩展中的制作状态。",
+    "",
+    "> 本验收单只重排当前本地方案，不读取或播放成片、不识别画面/声音、不自动判断通过、不写入项目或制作状态；所有勾选、时间码、结论与复验均由编导在外部人工完成。"
   );
   return lines.join("\n");
 }

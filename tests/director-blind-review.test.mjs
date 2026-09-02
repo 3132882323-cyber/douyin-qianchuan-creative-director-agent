@@ -8,7 +8,7 @@ import {
 } from "../src/director-blind-review.js";
 
 function item(index, overrides = {}) {
-  const id = index === 0 ? "SECRET-B00" : `SECRET-A${String(index).padStart(2, "0")}`;
+  const id = index === 0 ? "SECRET-BATCH-B00" : `SECRET-BATCH-A${String(index).padStart(2, "0")}`;
   const hook = overrides.hook || `${id} 先看变化，ROI：2.${index}`;
   const production = {
     spokenScript: `${hook}\n随后展示完整过程`,
@@ -58,7 +58,7 @@ test("builds a deterministic anonymous review pack and keeps the baseline out of
 test("removes source identity and performance values from the public pack but keeps a separate answer key", () => {
   const review = buildDirectorBlindReview(samplePlan());
   const publicText = directorBlindReviewPackToText({ ...review, answerKey: [{ label: "X", testId: "绝密映射" }] });
-  for (const secret of ["SECRET-B00", "SECRET-A01", "SECRET-BATCH", "内部母版甲", "ROI:2.0", "ROI:2.1", "¥888", "绝密映射"]) {
+  for (const secret of ["SECRET-BATCH-B00", "SECRET-BATCH-A01", "SECRET-BATCH", "内部母版甲", "ROI:2.0", "ROI:2.1", "¥888", "绝密映射"]) {
     assert.doesNotMatch(publicText, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }
   assert.match(publicText, /\[已隐藏来源\]/u);
@@ -67,7 +67,7 @@ test("removes source identity and performance values from the public pack but ke
   assert.match(publicText, /不复用原句的一个新开场/u);
   const key = directorBlindReviewKeyToText(review);
   assert.match(key, new RegExp(review.reviewId, "u"));
-  assert.match(key, /SECRET-B00/u);
+  assert.match(key, /SECRET-BATCH-B00/u);
   assert.match(key, /必须在反馈锁定后查看/u);
 });
 
@@ -86,7 +86,7 @@ test("turns locked feedback into a private three-action director decision sheet 
   const review = buildDirectorBlindReview(samplePlan());
   const sheet = directorBlindReviewDecisionSheetToText(review);
   assert.match(sheet, new RegExp(review.reviewId, "u"));
-  assert.match(sheet, /方案 [A-D] → SECRET-(?:B00|A\d{2})/u);
+  assert.match(sheet, /方案 [A-D] → SECRET-BATCH-(?:B00|A\d{2})/u);
   assert.match(sheet, /回收事实（先填，不下结论）/u);
   assert.match(sheet, /保留开拍/u);
   assert.match(sheet, /单变量重写/u);
@@ -108,6 +108,9 @@ test("fails closed for incomplete, undersized, excessive or overlong reviews", (
   assert.throws(() => directorBlindReviewPackToText(incomplete), /拍前盲审仍待补/u);
   assert.throws(() => buildDirectorBlindReview(samplePlan(1)), /2–12/u);
   assert.throws(() => buildDirectorBlindReview(samplePlan(13)), /2–12/u);
+  const disordered = samplePlan();
+  disordered.items[1].id = "SECRET-BATCH-A02";
+  assert.ok(buildDirectorBlindReview(disordered).blockers.every((blocker) => /版本身份与顺序/u.test(blocker)));
   const overlong = samplePlan();
   const text = "长".repeat(801);
   overlong.items[0].hook = text;

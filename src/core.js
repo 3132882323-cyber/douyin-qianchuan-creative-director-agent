@@ -540,6 +540,9 @@ function runSheetText(value, fallback = "待补充") {
 }
 
 const SHOOT_READINESS_FIELDS = Object.freeze([
+  { path: "singleVariable", label: "唯一变量" },
+  { path: "variant", label: "变量值" },
+  { path: "fixedElements", label: "固定项" },
   { path: "hook", label: "前三秒钩子" },
   { path: "audience", label: "目标受众" },
   { path: "scene", label: "拍摄场景" },
@@ -560,17 +563,39 @@ function shootFieldReady(value) {
   return Boolean(text && !/(?:待确认|待补充|未填写|请编导补充)/u.test(text));
 }
 
+function runSheetIdentityReady(plan) {
+  const items = plan?.items;
+  if (!Array.isArray(items) || !items.length || items.length > 100) return false;
+  const firstId = String(items[0]?.id ?? "").trim();
+  const batchId = String(plan?.batchId ?? "").trim();
+  const prefixed = firstId.match(/^(.+)-B00$/u);
+  const prefix = prefixed?.[1] || "";
+  const shortIds = firstId === "B00";
+  if (!shortIds && !prefix) return false;
+  if (!shortIds && batchId && prefix !== batchId) return false;
+  return items.every((item, index) => {
+    const token = index === 0 ? "B00" : `A${String(index).padStart(2, "0")}`;
+    const expectedId = shortIds ? token : `${prefix}-${token}`;
+    const expectedType = index === 0 ? "基线" : "变体";
+    return String(item?.id ?? "").trim() === expectedId && String(item?.type ?? "").trim() === expectedType;
+  });
+}
+
 export function assessPlanShootReadiness(plan) {
   if (!plan || !Array.isArray(plan.items) || !plan.items.length) throw new Error("开拍准备检查缺少可执行任务");
+  const identityReady = runSheetIdentityReady(plan);
   const items = plan.items.map((item, index) => {
-    const missing = SHOOT_READINESS_FIELDS
+    const missingFields = SHOOT_READINESS_FIELDS
       .filter((definition) => !shootFieldReady(nestedValue(item, definition.path)))
-      .map((definition) => definition.label);
+      .map((definition) => ({ path: definition.path, label: definition.label }));
+    if (!identityReady) missingFields.push({ path: "id", label: "版本身份与顺序" });
+    const missing = missingFields.map((definition) => definition.label);
     return {
       index,
       id: runSheetText(item?.id, `任务 ${index + 1}`),
       ready: missing.length === 0,
-      missing
+      missing,
+      missingFields
     };
   });
   const readyCount = items.filter((item) => item.ready).length;
@@ -588,6 +613,7 @@ export function planToRunSheet(plan, { itemIndex } = {}) {
   if (itemIndex !== undefined && (!Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= plan.items.length)) {
     throw new Error("开拍清单任务序号无效");
   }
+  if (!runSheetIdentityReady(plan)) throw new Error("开拍清单版本身份或顺序无效，请重新生成方案");
   const indexedItems = plan.items.map((item, index) => ({ item, index }));
   const selected = itemIndex === undefined ? indexedItems : [indexedItems[itemIndex]];
   const lines = [

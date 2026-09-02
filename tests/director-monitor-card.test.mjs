@@ -80,3 +80,11 @@ test("rejects invalid indexes, excessive batches and oversized fields", () => {
   assert.throws(() => buildDirectorMonitorCard({ items: Array.from({ length: 101 }, () => planItem()) }, { itemIndex: 0 }), /有效拍摄任务/u);
   assert.throws(() => buildDirectorMonitorCard({ items: [planItem({ hook: "钩".repeat(1001) })] }, { itemIndex: 0 }), /处理上限/u);
 });
+
+test("blocks a monitor card whose displayed order contradicts batch identity", () => {
+  const malformed = { items: [planItem({ id: "TEST-A99", type: "变体" })] };
+  const card = buildDirectorMonitorCard(malformed, { itemIndex: 0 });
+  assert.equal(card.copyable, false);
+  assert.ok(card.missing.includes("版本身份与顺序"));
+  assert.throws(() => directorMonitorCardToText(card), /版本身份与顺序/u);
+});

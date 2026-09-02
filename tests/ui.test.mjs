@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [html, script, css, manifestText, packageText, transcodeScript, repairScript, fileGuardScript, recoveryScript, releaseSafetyScript, serviceWorkerScript] = await Promise.all([
+const [html, script, css, manifestText, packageText, transcodeScript, repairScript, fileGuardScript, recoveryScript, releaseSafetyScript, serviceWorkerScript, directorMonitorScript, directorTakeReviewScript, directorItemRunSheetScript, directorBatchToolsScript, directorBlindReviewScript, planAutosaveScript, planEditorScript, planDerivedRefreshScript, planOutputScript, planGapScript] = await Promise.all([
   readFile(new URL("../sidepanel.html", import.meta.url), "utf8"),
   readFile(new URL("../sidepanel.js", import.meta.url), "utf8"),
   readFile(new URL("../sidepanel.css", import.meta.url), "utf8"),
@@ -13,7 +13,17 @@ const [html, script, css, manifestText, packageText, transcodeScript, repairScri
   readFile(new URL("../src/local-file-guard.js", import.meta.url), "utf8"),
   readFile(new URL("../src/workspace-recovery.js", import.meta.url), "utf8"),
   readFile(new URL("../src/release-safety.js", import.meta.url), "utf8"),
-  readFile(new URL("../service-worker.js", import.meta.url), "utf8")
+  readFile(new URL("../service-worker.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/director-monitor-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/director-take-review.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/director-item-run-sheet-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/director-batch-tools-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/director-blind-review-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/plan-autosave.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/plan-editor-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/plan-derived-refresh.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/plan-output-controller.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/plan-gap-navigator.js", import.meta.url), "utf8")
 ]);
 
 test("keeps Manifest V3 versions aligned and permissions minimal", () => {
@@ -47,11 +57,21 @@ test("guides the optional-task to review, generate and export flow", () => {
   }
   assert.match(html, /role="tablist"/u);
   assert.match(html, /role="tabpanel"/u);
+  assert.match(html, /id="workflow-progress-label">策划交付 0 \/ 3/u);
+  assert.match(html, /id="workflow-progress"[^>]*aria-label="策划交付进度"/u);
   assert.match(script, /MEANINGFUL_TASK_FIELDS/u);
   assert.match(script, /const completed = \[reviewed, planned, exported\]/u);
   assert.match(script, /markReviewPending/u);
   assert.match(script, /planExportReceipt/u);
   assert.match(script, /requested\?\.disabled[\s\S]*aria-describedby/u);
+  assert.match(script, /const disclosure = requested\?\.closest\?\.\("details"\)[\s\S]*disclosure\.open = true/u);
+  assert.match(script, /`策划交付 \$\{completed\} \/ 3`/u);
+  assert.match(script, /策划交付已完成。下一步：进入批次拍摄；每条拍完先现场快检，再撤场接片/u);
+  assert.match(script, /action\.textContent = "进入批次拍摄"[\s\S]*action\.dataset\.focusId = "copy-director-batch-board"/u);
+  assert.match(script, /workflow: "策划交付"/u);
+  assert.match(script, /本轮策划交付完成，请进入批次拍摄/u);
+  assert.doesNotMatch(script, /setNodeText\("#workflow-next-step", "本轮已完成/u);
+  assert.doesNotMatch(script, /本轮核心流程完成/u);
   assert.match(html, /class="actions plan-export-actions"/u);
   assert.match(html, /<details class="more-exports">\s*<summary>更多导出<\/summary>/u);
   for (const id of ["copy-run-sheet", "copy-plan", "export-plan-md", "export-plan-csv", "export-plan-json"]) {
@@ -63,36 +83,153 @@ test("guides the optional-task to review, generate and export flow", () => {
   assert.match(script, /planToRunSheet\(state\.plan\)/u);
   assert.match(script, /assessPlanShootReadiness\(state\.plan\)/u);
   assert.match(script, /function renderPlanShootReadiness\(\)/u);
-  assert.match(script, /buildDirectorMonitorCard\(state\.plan, \{ itemIndex: index \}\)/u);
-  assert.match(script, /directorMonitorCardToText\(monitor\)/u);
-  assert.match(script, /function renderDirectorMonitorReadiness\(\)/u);
+  assert.match(html, /id="focus-plan-gap"[^>]*aria-describedby="plan-production-readiness"/u);
+  assert.match(html, /id="focus-plan-gap"[^>]*hidden disabled/u);
+  assert.match(script, /const planGapNavigator = mountPlanGapNavigator\(\{/u);
+  assert.match(script, /planGapNavigator\.render\(assessment\)/u);
+  assert.match(planGapScript, /firstPlanGap\(assessment\)/u);
+  assert.match(planGapScript, /button\.addEventListener\("click", clickListener\)/u);
+  assert.match(planGapScript, /target\.closest\?\.\("details"\)/u);
+  assert.match(script, /const planEditor = mountPlanEditor/u);
+  assert.match(script, /getItemCount: \(\) => state\.plan\?\.items\?\.length \|\| 0/u);
+  assert.doesNotMatch(script, /onPreview:/u);
+  assert.match(script, /onEdit: \(\{ index, path, value \}\)/u);
+  assert.match(script, /const clearedExportReceipt = clearPlanExportReceipt\(\{ deferProject: true \}\)/u);
+  assert.match(script, /planInteractionRevision \+= 1/u);
+  assert.match(script, /planAutosave\.schedule\(\);\s*planDerivedRefresh\.schedule\(\)/u);
+  assert.match(script, /if \(clearedExportReceipt\) updateWorkflowGuide\(\)/u);
+  assert.doesNotMatch(script, /function editorField[\s\S]*?input\.addEventListener\("input"/u);
+  assert.match(planEditorScript, /listNode\.addEventListener\("input", handleInput\)/u);
+  assert.match(planEditorScript, /listNode\.addEventListener\("compositionstart", handleCompositionStart\)/u);
+  assert.match(planEditorScript, /listNode\.addEventListener\("compositionend", handleCompositionEnd\)/u);
+  assert.match(planEditorScript, /event\?\.isComposing === true/u);
+  assert.match(planEditorScript, /compositionStartValues/u);
+  assert.match(planEditorScript, /completedCompositionValues/u);
+  assert.match(planEditorScript, /PLAN_EDITOR_FIELD_PATHS/u);
+  assert.match(planEditorScript, /index > 99/u);
+  assert.match(planEditorScript, /edit\.index >= itemCount/u);
+  assert.match(script, /mountDirectorMonitorTools/u);
+  assert.match(script, /const directorMonitorTools = mountDirectorMonitorTools/u);
+  assert.match(script, /directorMonitorTools\.render\(\)/u);
+  assert.doesNotMatch(script, /function renderDirectorMonitorReadiness\(\)/u);
+  assert.doesNotMatch(script, /buildDirectorMonitorCard\(state\.plan/u);
   assert.match(script, /复制前三秒监看卡/u);
-  assert.match(script, /首帧、口播、字幕与证据字段已齐/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorMonitorCardToText\(monitor\)\)/u);
+  assert.match(directorMonitorScript, /buildDirectorMonitorCard\(plan, \{ itemIndex: index \}\)/u);
+  assert.match(directorMonitorScript, /const content = definition\.format\(model\)[\s\S]*clipboardWriter\(content\)/u);
+  assert.match(directorMonitorScript, /revisionReader\(\) !== revision/u);
+  assert.match(directorMonitorScript, /方案已过期，请重新生成后再复制/u);
+  assert.match(directorMonitorScript, /首帧、口播、字幕与证据字段已齐/u);
+  assert.match(script, /const takeReviewAction = element\("button", "secondary director-take-review-action", "复制拍后快检卡"\)/u);
+  assert.match(script, /monitorTools\.setAttribute\("role", "group"\)[\s\S]*monitorTools\.setAttribute\("aria-label", `\$\{item\.id\} 现场监看与回看`\)/u);
+  assert.match(script, /takeReviewAction\.setAttribute\("aria-label", `\$\{item\.id\}：复制拍后快检卡`\)/u);
+  assert.match(script, /takeReviewAction\.setAttribute\("aria-describedby", `director-take-review-state-\$\{index\}`\)/u);
+  assert.match(script, /takeReviewState\.setAttribute\("role", "status"\)[\s\S]*takeReviewState\.setAttribute\("aria-live", "polite"\)/u);
+  assert.match(script, /monitorTools\.append\(monitorAction, monitorState, takeReviewAction, takeReviewState\)/u);
+  assert.match(directorMonitorScript, /import \{ buildDirectorTakeReview, directorTakeReviewToText \} from "\.\/director-take-review\.js"/u);
+  assert.match(directorMonitorScript, /selector: "\.director-take-review-action"/u);
+  assert.match(directorMonitorScript, /buildDirectorTakeReview\(plan, \{ itemIndex: index \}\)/u);
+  assert.match(directorMonitorScript, /format: directorTakeReviewToText/u);
+  assert.match(directorMonitorScript, /copySequence/u);
+  assert.match(directorTakeReviewScript, /buildDirectorTakeReview/u);
+  assert.match(directorTakeReviewScript, /directorTakeReviewToText/u);
+  assert.match(directorTakeReviewScript, /保留本 Take/u);
+  assert.match(directorTakeReviewScript, /立即重拍/u);
+  assert.match(directorTakeReviewScript, /停机核实事实或授权/u);
+  assert.doesNotMatch(directorTakeReviewScript, /chrome\.storage|fetch\(|XMLHttpRequest|markCompleted|persistCurrentProject/u);
+  assert.match(script, /import \{ mountDirectorItemRunSheetTools \} from "\.\/src\/director-item-run-sheet-ui\.js"/u);
+  assert.match(script, /const directorItemRunSheetTools = mountDirectorItemRunSheetTools\(\{/u);
+  assert.match(script, /directorItemRunSheetTools\.render\(assessment\)/u);
+  assert.match(script, /const executionStrip = element\("section", "director-execution-strip"\)[\s\S]*body\.append\(\s*executionStrip,\s*editorField\("测试假设"/u);
+  assert.match(script, /const executionVariableValue = element\("strong", "director-execution-variable-value", `\$\{item\.singleVariable \|\| "唯一变量待补"\} → \$\{item\.variant \|\| "变量值待补"\}`\)/u);
+  assert.match(script, /executionVariableValue\.id = `director-execution-variable-value-\$\{index\}`/u);
+  assert.match(script, /element\("span", "", "本条只改"\)/u);
+  assert.match(script, /其余锁定：\$\{item\.fixedElements \|\| "固定项待补"\}/u);
+  assert.match(script, /executionLocks\.id = `director-execution-locks-\$\{index\}`/u);
+  assert.match(script, /runSheetAction\.setAttribute\("aria-label", `\$\{item\.id\}：复制本条开拍单`\)/u);
+  assert.match(script, /monitorAction\.setAttribute\("aria-label", `\$\{item\.id\}：复制前三秒监看卡`\)/u);
+  assert.match(script, /runSheetState\.setAttribute\("role", "status"\)[\s\S]*monitorState\.setAttribute\("role", "status"\)/u);
+  assert.match(directorItemRunSheetScript, /assessPlanShootReadiness\(plan\)/u);
+  assert.match(directorItemRunSheetScript, /planToRunSheet\(state\.plan, \{ itemIndex: index \}\)/u);
+  assert.match(directorItemRunSheetScript, /function syncExecutionSummary\(index, plan\)[\s\S]*director-execution-variable-value-[\s\S]*director-execution-locks-/u);
+  assert.match(directorItemRunSheetScript, /const snapshot = readSnapshot\(assessment\)[\s\S]*inspect\(index, snapshot\)/u);
+  assert.match(directorItemRunSheetScript, /revisionReader\(\) !== revision \|\| staleReader\(\)/u);
+  assert.doesNotMatch(directorItemRunSheetScript, /chrome\.storage|markCompleted|writeReceipt|persistCurrentProject/u);
   for (const id of ["director-blind-review", "director-blind-review-state", "director-blind-review-summary", "copy-director-blind-review", "copy-director-blind-review-key", "copy-director-blind-review-decision", "director-blind-review-feedback"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /前三秒拍前盲审/u);
   assert.match(html, /隐藏测试编号、基线身份、来源素材和历史指标/u);
-  assert.match(script, /function renderDirectorBlindReview\(\)/u);
-  assert.match(script, /buildDirectorBlindReview\(state\.plan\)/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewPackToText\(review\)\)/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewKeyToText\(review\)\)/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorBlindReviewDecisionSheetToText\(review\)\)/u);
-  assert.match(script, /请先收齐并锁定反馈，再揭示导演映射/u);
-  assert.match(script, /请先填回收事实，再在保留、单变量重写和淘汰中三选一/u);
-  for (const id of ["director-batch-board", "director-batch-board-state", "director-batch-board-summary", "copy-director-batch-board", "copy-director-edit-assembly", "director-batch-board-feedback"]) {
+  assert.match(html, /1 盲审 · 2 揭晓 · 3 合议/u);
+  assert.match(html, /1 · 复制匿名盲审包/u);
+  assert.match(html, /2 · 复制导演映射/u);
+  assert.match(html, /3 · 复制导演合议单/u);
+  assert.match(script, /mountDirectorBlindReview/u);
+  assert.match(script, /const directorBlindReview = mountDirectorBlindReview/u);
+  assert.match(script, /directorBlindReview\.render\(\)/u);
+  assert.doesNotMatch(script, /function renderDirectorBlindReview\(\)/u);
+  assert.match(directorBlindReviewScript, /buildDirectorBlindReview\(plan\)/u);
+  assert.match(directorBlindReviewScript, /clipboardWriter\(directorBlindReviewPackToText\(review\)\)/u);
+  assert.match(directorBlindReviewScript, /clipboardWriter\(directorBlindReviewKeyToText\(review\)\)/u);
+  assert.match(directorBlindReviewScript, /clipboardWriter\(directorBlindReviewDecisionSheetToText\(review\)\)/u);
+  assert.match(directorBlindReviewScript, /revisionReader\(\) !== revision/u);
+  assert.match(directorBlindReviewScript, /请先收齐并锁定反馈，再揭示导演映射/u);
+  assert.match(directorBlindReviewScript, /请先填回收事实，再在保留、单变量重写和淘汰中三选一/u);
+  for (const id of ["director-batch-board", "director-batch-board-state", "director-batch-board-summary", "copy-director-batch-board", "copy-director-take-handoff", "copy-director-edit-assembly", "copy-director-cut-review", "director-batch-board-feedback"]) {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
-  assert.match(html, /批次共用镜头板/u);
-  assert.match(html, /先拍并锁定 B00 全流程母版/u);
-  assert.match(script, /function renderDirectorBatchBoard\(\)/u);
-  assert.match(script, /buildDirectorBatchBoard\(state\.plan\)/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorBatchBoardToText\(board\)\)/u);
-  assert.match(script, /navigator\.clipboard\.writeText\(directorBatchEditAssemblyToText\(board\)\)/u);
-  assert.match(script, /renderDirectorBlindReview\(\);\s*renderDirectorBatchBoard\(\);/u);
-  assert.match(script, /请先锁定 B00，再按场记编号拍/u);
-  assert.match(script, /请先锁定 B00 时间轴，再逐个替换/u);
+  assert.match(html, /批次拍摄与成片交付/u);
+  assert.match(html, /1 拍摄 · 2 接片 · 3 剪辑 · 4 验收/u);
+  assert.match(html, /1 · 复制拍摄镜头板/u);
+  assert.match(html, /2 · 复制收工接片单/u);
+  assert.match(html, /3 · 复制剪辑装配单/u);
+  assert.match(html, /4 · 复制成片验收单/u);
+  assert.match(script, /mountDirectorBatchTools/u);
+  assert.match(script, /const directorBatchTools = mountDirectorBatchTools/u);
+  assert.match(script, /directorBatchTools\.render\(\)/u);
+  assert.doesNotMatch(script, /function renderDirectorBatchBoard\(\)/u);
+  assert.match(directorBatchToolsScript, /buildDirectorBatchBoard\(plan\)/u);
+  assert.match(directorBatchToolsScript, /clipboardWriter\(directorBatchBoardToText\(board\)\)/u);
+  assert.match(directorBatchToolsScript, /buildDirectorTakeHandoff\(plan\)/u);
+  assert.match(directorBatchToolsScript, /clipboardWriter\(directorTakeHandoffToText\(handoff\)\)/u);
+  assert.match(directorBatchToolsScript, /clipboardWriter\(directorBatchEditAssemblyToText\(board\)\)/u);
+  assert.match(directorBatchToolsScript, /clipboardWriter\(directorBatchCutReviewToText\(board\)\)/u);
+  assert.match(directorBatchToolsScript, /revisionReader\(\) !== revision/u);
+  assert.match(directorBatchToolsScript, /请先锁定 B00，再按场记编号拍/u);
+  assert.match(directorBatchToolsScript, /撤场前请逐条填写实际文件与首选 Take/u);
+  assert.match(directorBatchToolsScript, /请先锁定 B00 时间轴，再逐个替换/u);
+  assert.match(directorBatchToolsScript, /请先独立验收 B00，再逐条选择通过、返剪或补拍/u);
+  assert.doesNotMatch(directorBlindReviewScript, /setText\(feedbackNode,\s*""\)/u);
+  assert.doesNotMatch(directorBatchToolsScript, /setText\(feedbackNode,\s*""\)/u);
+  assert.match(script, /import \{ createPlanDerivedRefresh, derivePlanAsyncFeedback \} from "\.\/src\/plan-derived-refresh\.js"/u);
+  assert.match(script, /const planDerivedRefresh = createPlanDerivedRefresh\(\{/u);
+  assert.match(script, /refresh: runPlanDerivedRefresh/u);
+  assert.match(script, /requestFrame: \(callback\) => window\.requestAnimationFrame\(callback\)/u);
+  assert.match(script, /function refreshPlanDerivedViews\(\)[\s\S]*renderPlanShootReadiness\(\)[\s\S]*directorMonitorTools\.render\(\)[\s\S]*directorBlindReview\.render\(\)[\s\S]*directorBatchTools\.render\(\)/u);
+  assert.match(script, /function runPlanDerivedRefresh\(\)[\s\S]*refreshPlanDerivedViews\(\)[\s\S]*planDerivedRefreshError = ""/u);
+  assert.match(script, /function markPlanStale\(reason\)[\s\S]*planDerivedRefresh\.cancel\(\)[\s\S]*runPlanDerivedRefresh\(\)[\s\S]*updateWorkflowGuide\(\)/u);
+  assert.match(script, /function renderPlan\(plan\)[\s\S]*planDerivedRefresh\.cancel\(\)[\s\S]*runPlanDerivedRefresh\(\)/u);
+  assert.match(script, /function beginPlanOutputOperation\(\)/u);
+  assert.match(script, /import \{ createRevisionOperationGuard \} from "\.\/src\/operation-guard\.js"/u);
+  assert.match(script, /const planOutputGuard = createRevisionOperationGuard\(\{/u);
+  assert.match(script, /function isCurrentPlanOutput\(token\)/u);
+  assert.match(script, /const planCompletionTracker = createPlanCompletionTracker\(\{/u);
+  assert.match(script, /const planOutputController = createPlanOutputController\(\{/u);
+  assert.match(script, /planCompletionTracker\.clearCompletion\(\)/u);
+  assert.match(script, /planOutputController\.copy\(\{[\s\S]*label: "完整方案"/u);
+  assert.match(script, /planOutputController\.copy\(\{[\s\S]*label: "现场开拍清单"/u);
+  assert.match(script, /function exportPlan[\s\S]*planOutputController\.exportFile\(\{/u);
+  assert.match(planOutputScript, /while \(completedSyncRevision < desiredSyncRevision\)/u);
+  assert.match(planOutputScript, /targetRevision === desiredSyncRevision/u);
+  assert.match(planOutputScript, /if \(!revisionMatcher\(token\) \|\| receiptReader\(\) !== receipt\)/u);
+  assert.match(script, /let planSaveFeedback = \{ code: "idle", error: "" \}/u);
+  assert.match(script, /let planDerivedRefreshError = ""/u);
+  assert.match(script, /function renderPlanAsyncFeedback\(\)/u);
+  assert.match(planDerivedRefreshScript, /保存失败 · 提示异常/u);
+  assert.match(planDerivedRefreshScript, /function schedule\(\)/u);
+  assert.match(planDerivedRefreshScript, /function flush\(\)/u);
+  assert.match(planDerivedRefreshScript, /function cancel\(\)/u);
+  assert.match(planDerivedRefreshScript, /function destroy\(\)/u);
+  assert.match(planDerivedRefreshScript, /export function derivePlanAsyncFeedback/u);
   assert.match(script, /当前开拍清单仍有 \$\{readiness\.missingCount\} 项待补/u);
   assert.match(script, /if \(!window\.confirm\([\s\S]*是否仍要复制给现场/u);
   assert.match(script, /先拍 \$\{firstItem\.id\} 基线，再按编号拍变体/u);
@@ -100,8 +237,14 @@ test("guides the optional-task to review, generate and export flow", () => {
   assert.match(script, /action\.dataset\.focusId = "copy-run-sheet"/u);
   assert.match(css, /\.plan-export-actions \.more-exports\s*\{[^}]*grid-column:\s*1 \/ -1/iu);
   assert.match(css, /\.plan-card-readiness\[data-ready="true"\]/u);
+  assert.match(css, /\.plan-gap-action\s*\{[^}]*width:\s*100%/iu);
   assert.match(css, /\.director-monitor-tools\s*\{[^}]*grid-template-columns/iu);
   assert.match(css, /\.director-monitor-state\[data-ready="true"\]/u);
+  assert.match(css, /\.director-take-review-state\[data-ready="true"\]/u);
+  assert.match(css, /\.director-execution-strip\s*\{[^}]*min-width:\s*0[^}]*border:\s*1px solid #111111/iu);
+  assert.match(css, /\.director-execution-actions\s*\{[^}]*grid-template-columns:\s*1fr 1fr/iu);
+  assert.match(css, /\.director-execution-action-group button\s*\{[^}]*min-width:\s*0[^}]*min-height:\s*40px/iu);
+  assert.match(css, /\.director-item-run-sheet-state\[data-ready="true"\]/u);
   assert.match(css, /\.director-blind-review-actions\s*\{[^}]*grid-template-columns:\s*1fr 1fr/iu);
   assert.match(css, /\.director-blind-review-summary/u);
   assert.match(css, /\.director-blind-review-decision\s*\{[^}]*grid-column:\s*1 \/ -1/iu);
@@ -114,11 +257,13 @@ test("guides the optional-task to review, generate and export flow", () => {
 test("keeps narrow side panels and programmatic focus usable", () => {
   assert.match(css, /body\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden/iu);
   assert.match(css, /@media \(max-width:\s*400px\)/u);
+  assert.match(css, /@media \(max-width:\s*400px\)[\s\S]*\.card\.plan-card\s*\{\s*padding:\s*0/iu);
+  assert.match(css, /@media \(max-width:\s*400px\)[\s\S]*\.director-execution-actions\s*\{[^}]*grid-template-columns:\s*1fr/iu);
   assert.match(css, /section\[tabindex="-1"\]:focus-visible/u);
   assert.match(css, /prefers-reduced-motion:\s*reduce/u);
   assert.match(script, /prefers-reduced-motion: reduce/u);
   assert.match(script, /function focusAndReveal\(target/u);
-  assert.match(script, /target\.focus\(\);[\s\S]*target\.scrollIntoView/u);
+  assert.match(script, /if \(!target\.isConnected\)[\s\S]*onUnavailable\?\.\(\)[\s\S]*target\.focus\(\);[\s\S]*target\.scrollIntoView/u);
   assert.doesNotMatch(script, /preventScroll/u);
   assert.match(css, /\.tag-editor \{ max-height: none;[\s\S]*overflow: visible;/u);
 });
@@ -299,7 +444,20 @@ test("guards local imports, spreadsheet exports and destructive resets", () => {
 
 test("fails closed on background and delayed local-storage writes", () => {
   assert.match(serviceWorkerScript, /try \{[\s\S]*setPanelBehavior[\s\S]*catch/u);
-  assert.match(script, /function schedulePlanSave\(\)[\s\S]*catch \(error\)/u);
+  assert.match(script, /const planAutosave = createPlanAutosave/u);
+  assert.match(script, /planAutosave\.schedule\(\)/u);
+  assert.equal((script.match(/planAutosave\.flush\(\)/gu) || []).length, 3);
+  assert.doesNotMatch(script, /planSaveTimer|function schedulePlanSave/u);
+  assert.equal((script.match(/chrome\.storage\.local\.set\(\{ creativePlan:/gu) || []).length, 1);
+  assert.match(script, /pendingPlanParentVersionId = parentVersionId/u);
+  assert.match(script, /generateButton\.disabled = true/u);
+  assert.match(script, /hasCompletion: \(\) => state\.planExported \|\| Boolean\(state\.planExportReceipt\)/u);
+  assert.match(planOutputScript, /function clearCompletion\(\{ persistProject = true \} = \{\}\)/u);
+  assert.match(planOutputScript, /if \(!completionReader\(\)\) return false/u);
+  assert.match(script, /已取消项目切换/u);
+  assert.match(planAutosaveScript, /while \(savedRevision < revision\)/u);
+  assert.match(planAutosaveScript, /if \(running\) await running/u);
+  assert.match(planAutosaveScript, /targetRevision >= revision \? "error" : "pending"/u);
   assert.match(script, /复盘已完成，当前会话可继续使用，但未能保存到浏览器/u);
   assert.match(script, /任务已生成，当前会话可复制或导出，但未能保存到浏览器/u);
 });
