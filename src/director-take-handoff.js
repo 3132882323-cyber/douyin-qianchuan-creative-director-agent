@@ -41,7 +41,7 @@ function text(value, label, maxLength = DIRECTOR_TAKE_HANDOFF_LIMITS.maxFieldLen
     .replace(/\s+/gu, " ")
     .trim();
   if (!result) throw new Error(`${label}缺失`);
-  if (result.length > maxLength) throw new Error(`${label}超过本地接片单处理上限`);
+  if (result.length > maxLength) throw new Error(`${label}超过本地应急模板处理上限`);
   return result;
 }
 
@@ -60,13 +60,13 @@ function assertReadyBoard(board) {
     const reason = Array.isArray(source.blockers) && source.blockers.length
       ? source.blockers.join("；")
       : "单变量、连续性或现场字段尚未通过批次检查";
-    throw new Error(`批次收工接片单仍待修正：${reason}`);
+    throw new Error(`应急空白接片模板仍待修正：${reason}`);
   }
   return source;
 }
 
 function assertReadyHandoff(handoff) {
-  const source = record(handoff, "批次收工接片单");
+  const source = record(handoff, "应急空白接片模板");
   if (
     source.copyable !== true
     || source.code !== "ready"
@@ -81,7 +81,7 @@ function assertReadyHandoff(handoff) {
     || !Array.isArray(source.sharedLocks)
     || source.sharedLocks.length !== 4
   ) {
-    throw new Error("批次收工接片单结构不完整");
+    throw new Error("应急空白接片模板结构不完整");
   }
   return source;
 }
@@ -109,7 +109,7 @@ function assertEntryIdentity(entry, batchId, index) {
   const id = text(entry.id, "测试编号", 160);
   const type = text(entry.type, `${id} 类型`, 80);
   const orderLabel = text(entry.orderLabel, `${id} 拍摄顺序`, 80);
-  if (id !== expected.id) throw new Error(`批次收工接片单编号顺序无效：应为 ${expected.id}`);
+  if (id !== expected.id) throw new Error(`应急空白接片模板编号顺序无效：应为 ${expected.id}`);
   if (type !== expected.type) throw new Error(`${id} 类型必须为${expected.type}`);
   if (orderLabel !== expected.orderLabel) throw new Error(`${id} 拍摄顺序必须为“${expected.orderLabel}”`);
   if (entry.requiresReshoot !== expected.requiresReshoot) throw new Error(`${id} 补拍身份与基线/变体不一致`);
@@ -125,14 +125,14 @@ export function buildDirectorTakeHandoff(plan) {
   const board = assertReadyBoard(buildDirectorBatchBoard(plan));
   const batchId = text(board.batchId, "测试批次", 160);
   const variableCode = text(board.variableCode, "唯一变量代码", 32);
-  if (!Object.hasOwn(VARIABLE_RESTRICTED_SLOTS, variableCode)) throw new Error("批次收工接片单无法识别唯一变量");
+  if (!Object.hasOwn(VARIABLE_RESTRICTED_SLOTS, variableCode)) throw new Error("应急空白接片模板无法识别唯一变量");
   const variableLabel = text(board.variableLabel, "唯一变量", 80);
   const seenIds = new Set();
   const entries = board.entries.map((candidate, index) => {
     const entry = record(candidate, "逐版本接片项");
     const rawId = text(entry.id, "测试编号", 160);
     const key = rawId.toLocaleLowerCase("zh-CN");
-    if (seenIds.has(key)) throw new Error(`批次收工接片单包含重复测试编号：${rawId}`);
+    if (seenIds.has(key)) throw new Error(`应急空白接片模板包含重复测试编号：${rawId}`);
     seenIds.add(key);
     const identity = assertEntryIdentity(entry, batchId, index);
     const { id } = identity;
@@ -179,7 +179,7 @@ export function directorTakeHandoffToText(handoff) {
     const entry = record(candidate, "逐版本接片项");
     const rawId = text(entry.id, "测试编号", 160);
     const key = rawId.toLocaleLowerCase("zh-CN");
-    if (seenIds.has(key)) throw new Error(`批次收工接片单包含重复测试编号：${rawId}`);
+    if (seenIds.has(key)) throw new Error(`应急空白接片模板包含重复测试编号：${rawId}`);
     seenIds.add(key);
     const identity = assertEntryIdentity(entry, batchId, index);
     const { id } = identity;
@@ -228,8 +228,10 @@ export function directorTakeHandoffToText(handoff) {
     };
   });
   const lines = [
-    `# 批次收工接片单 · ${batchId}`,
+    `# 应急空白接片模板 · ${batchId}`,
     "",
+    "- 使用场景：仅在片场过条台暂不可用时手工填写；正式接片请优先回到片场过条台保存人工记录。",
+    "- 保存说明：本模板不会保存填写结果，请主动存入可信的纸面或团队文档。",
     `- 本轮唯一变量：${variableLabel}`,
     `- 接片顺序：先确认 B00 全流程母版，再清点 ${sharedCaptureSlots.length} 类保险素材，最后逐条核对 ${Math.max(0, entries.length - 1)} 个 A 编号变体。`,
     "- 使用原则：场记只填写真实拍到的文件与人工选定 Take；没有拍到就明确标记需补拍，不得让剪辑师猜文件或跨版本借镜头。",
@@ -295,7 +297,7 @@ export function directorTakeHandoffToText(handoff) {
     "- 批次结论：[ ] 齐全可交剪  [ ] 必须补拍（必须二选一）",
     "- 场记/导演：________；交接剪辑师：________；交接时间：________",
     "",
-    "> 本单只重排已通过校验的本地方案并提供人工填写槽位；不扫描或读取媒体、不自动选择最佳 Take、不修改方案或制作状态，也不证明素材授权与事实合规。"
+    "> 本应急模板只重排已通过校验的本地方案并提供人工填写槽位；不扫描或读取媒体、不自动选择最佳 Take、不保存填写结果、不修改方案或制作状态，也不证明素材授权与事实合规。"
   );
   return lines.join("\n");
 }

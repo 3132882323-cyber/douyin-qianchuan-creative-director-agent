@@ -36,9 +36,40 @@
         <p id="project-status" class="success" role="status" aria-live="polite"></p>
         <p id="project-error" class="error" role="alert"></p>
       </section>
+      <section id="production-command-board" class="production-command-board" aria-labelledby="production-command-title" aria-busy="true">
+        <div class="production-command-head">
+          <div>
+            <span>CONTENT LEAD · DIRECTOR</span>
+            <strong id="production-command-title">跨项目今日生产指挥台</strong>
+            <small id="production-command-state">正在读取已保存的本地人工状态…</small>
+          </div>
+          <button id="refresh-production-command" type="button" class="secondary" disabled>刷新</button>
+        </div>
+        <p id="production-command-summary" class="production-command-summary" role="status" aria-live="polite">人工排期决定顺序；正在翻译每个项目的唯一下一步。</p>
+        <div id="production-command-list" class="production-command-list" aria-label="今日跨项目生产动作"></div>
+        <div class="production-command-footer">
+          <small>只读取本地已保存记录 · 不按 ROI、消耗或历史爆款自动排名</small>
+          <div class="production-command-footer-actions">
+            <button id="copy-production-shift-brief" type="button" class="secondary" disabled>复制今日排产单</button>
+            <button id="manage-content-priority" type="button" class="secondary">管理人工排期</button>
+          </div>
+        </div>
+        <p id="production-command-feedback" class="production-command-feedback" role="status" aria-live="polite"></p>
+      </section>
+      <details id="content-priority-board" class="content-priority-board">
+        <summary>
+          <span><strong>内容负责人排期台</strong><small id="content-priority-state">正在读取跨项目人工优先级…</small></span>
+        </summary>
+        <div class="content-priority-body">
+          <p class="helper">由内容负责人手工安排“立即做 / 本周 / 候选 / 暂停”。系统不根据 ROI、历史爆款或平台数据自动排名；内容目标变化后旧决定会标记为需重审。</p>
+          <p id="content-priority-summary" class="content-priority-summary" role="status" aria-live="polite">正在汇总本地项目。</p>
+          <div id="content-priority-lanes" class="content-priority-lanes" aria-label="跨项目人工排期"></div>
+          <p id="content-priority-feedback" class="content-priority-feedback" role="status" aria-live="polite"></p>
+        </div>
+      </details>
       <section id="recent-task" class="recent-task director-desk" aria-labelledby="recent-task-label">
         <div class="recent-task-copy">
-          <span id="recent-task-label">今日编导行动台 · 仅本地</span>
+          <span id="recent-task-label">当前项目其他工作 · 仅本地</span>
           <strong id="recent-task-title">正在读取本地工作区…</strong>
           <small id="recent-task-description">正在读取当前浏览器中的本地编导项目。</small>
         </div>
@@ -337,19 +368,39 @@
             </div>
           </details>
           <details id="director-batch-board" class="director-batch-board">
-            <summary><span>批次拍摄与成片交付</span><small id="director-batch-board-state">1 拍摄 · 2 接片 · 3 剪辑 · 4 验收</small></summary>
+            <summary><span>批次拍摄与成片交付</span><small id="director-batch-board-state">1 拍摄 · 2 应急模板 · 3 剪辑 · 4 验收</small></summary>
             <div class="director-batch-board-body">
-              <p class="helper">按生产阶段依次使用：先锁定 B00 并拍摄变量插条，撤场前用接片单登记实际文件与人工选定 Take，再交付剪辑装配，最后逐版验收成片。四个动作共用同一套单变量检查；演员、机位、光线、证据条件或行动引导发生漂移时全部停止导出。</p>
+              <p class="helper">按生产阶段依次使用：先锁定 B00 并拍摄变量插条；正式接片请在下方“片场过条台”保存人工结论，这里只保留应急空白模板；随后交付剪辑装配并逐版验收成片。四个动作共用同一套单变量检查；演员、机位、光线、证据条件或行动引导发生漂移时全部停止导出。</p>
               <p id="director-batch-board-summary" class="director-batch-board-summary">至少需要两条字段完整、变量唯一且固定项一致的同批方案。</p>
               <div class="director-batch-board-actions">
                 <button id="copy-director-batch-board" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>1 · 复制拍摄镜头板</button>
-                <button id="copy-director-take-handoff" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>2 · 复制收工接片单</button>
+                <button id="copy-director-take-handoff" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>2 · 复制应急空白接片模板</button>
                 <button id="copy-director-edit-assembly" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>3 · 复制剪辑装配单</button>
                 <button id="copy-director-cut-review" type="button" class="secondary director-batch-board-action" aria-describedby="director-batch-board-summary" disabled>4 · 复制成片验收单</button>
               </div>
               <p id="director-batch-board-feedback" class="director-batch-board-feedback" role="status" aria-live="polite"></p>
             </div>
           </details>
+          <section id="take-review-workbench-entry" class="card take-review-workbench-entry" aria-labelledby="take-review-workbench-title">
+            <div class="take-review-workbench-head">
+              <div>
+                <span class="eyebrow">片场人工过条</span>
+                <h3 id="take-review-workbench-title">片场过条台</h3>
+              </div>
+              <span id="take-review-workbench-state" class="badge">待过条</span>
+            </div>
+            <p id="take-review-workbench-summary" class="helper">先保存当前批次方案，再逐条登记人工快检结论与首选 Take。</p>
+            <div class="take-review-workbench-metrics" aria-label="当前批次过条进度">
+              <div><span>已过条</span><strong id="take-review-reviewed-count">0 / 0</strong></div>
+              <div><span>首选齐备</span><strong id="take-review-primary-count">0 / 0</strong></div>
+              <div><span>待处理</span><strong id="take-review-issue-count">0</strong></div>
+            </div>
+            <div class="take-review-workbench-actions">
+              <button id="open-take-review-workbench" type="button" class="primary" aria-describedby="take-review-workbench-summary" disabled>打开片场过条台</button>
+              <small>新标签页打开 · 记录仅保存在当前浏览器 · 不读取视频</small>
+            </div>
+            <p id="take-review-workbench-feedback" class="director-batch-board-feedback" role="status" aria-live="polite"></p>
+          </section>
           <div id="plan-list" class="stack plan-list"></div>
           <div class="actions plan-export-actions">
             <button id="copy-run-sheet" type="button" class="primary" aria-describedby="copy-state plan-shoot-order">复制开拍清单</button>

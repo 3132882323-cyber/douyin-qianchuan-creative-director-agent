@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [html, script, css, manifestText, packageText, transcodeScript, repairScript, fileGuardScript, recoveryScript, releaseSafetyScript, serviceWorkerScript, directorMonitorScript, directorTakeReviewScript, directorItemRunSheetScript, directorBatchToolsScript, directorBlindReviewScript, planAutosaveScript, planEditorScript, planDerivedRefreshScript, planOutputScript, planGapScript] = await Promise.all([
+const [html, script, css, manifestText, packageText, transcodeScript, repairScript, fileGuardScript, recoveryScript, releaseSafetyScript, serviceWorkerScript, directorMonitorScript, directorTakeReviewScript, directorItemRunSheetScript, directorBatchToolsScript, directorBlindReviewScript, planAutosaveScript, planEditorScript, planDerivedRefreshScript, planOutputScript, planGapScript, contentPriorityScript, contentPriorityUiScript, productionCommandScript, productionCommandUiScript, productionCommandSourceScript, productionCommandRouteScript] = await Promise.all([
   readFile(new URL("../sidepanel.html", import.meta.url), "utf8"),
   readFile(new URL("../sidepanel.js", import.meta.url), "utf8"),
   readFile(new URL("../sidepanel.css", import.meta.url), "utf8"),
@@ -23,7 +23,13 @@ const [html, script, css, manifestText, packageText, transcodeScript, repairScri
   readFile(new URL("../src/plan-editor-ui.js", import.meta.url), "utf8"),
   readFile(new URL("../src/plan-derived-refresh.js", import.meta.url), "utf8"),
   readFile(new URL("../src/plan-output-controller.js", import.meta.url), "utf8"),
-  readFile(new URL("../src/plan-gap-navigator.js", import.meta.url), "utf8")
+  readFile(new URL("../src/plan-gap-navigator.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/content-priority.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/content-priority-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/production-command.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/production-command-ui.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/production-command-source.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/production-command-route.js", import.meta.url), "utf8")
 ]);
 
 test("keeps Manifest V3 versions aligned and permissions minimal", () => {
@@ -178,9 +184,11 @@ test("guides the optional-task to review, generate and export flow", () => {
     assert.match(html, new RegExp(`id="${id}"`, "u"));
   }
   assert.match(html, /批次拍摄与成片交付/u);
-  assert.match(html, /1 拍摄 · 2 接片 · 3 剪辑 · 4 验收/u);
+  assert.match(html, /1 拍摄 · 2 应急模板 · 3 剪辑 · 4 验收/u);
+  assert.match(html, /复制应急空白接片模板/u);
+  assert.match(html, /正式接片请在下方“片场过条台”保存人工结论/u);
   assert.match(html, /1 · 复制拍摄镜头板/u);
-  assert.match(html, /2 · 复制收工接片单/u);
+  assert.match(html, /2 · 复制应急空白接片模板/u);
   assert.match(html, /3 · 复制剪辑装配单/u);
   assert.match(html, /4 · 复制成片验收单/u);
   assert.match(script, /mountDirectorBatchTools/u);
@@ -195,7 +203,7 @@ test("guides the optional-task to review, generate and export flow", () => {
   assert.match(directorBatchToolsScript, /clipboardWriter\(directorBatchCutReviewToText\(board\)\)/u);
   assert.match(directorBatchToolsScript, /revisionReader\(\) !== revision/u);
   assert.match(directorBatchToolsScript, /请先锁定 B00，再按场记编号拍/u);
-  assert.match(directorBatchToolsScript, /撤场前请逐条填写实际文件与首选 Take/u);
+  assert.match(directorBatchToolsScript, /应急空白接片模板；正式接片请优先使用片场过条台/u);
   assert.match(directorBatchToolsScript, /请先锁定 B00 时间轴，再逐个替换/u);
   assert.match(directorBatchToolsScript, /请先独立验收 B00，再逐条选择通过、返剪或补拍/u);
   assert.doesNotMatch(directorBlindReviewScript, /setText\(feedbackNode,\s*""\)/u);
@@ -315,6 +323,64 @@ test("wires multi-project switching, version lineage and explicit result backfil
   assert.match(css, /\.version-content-diff/u);
   assert.match(css, /\.content-diff-values/u);
   assert.match(script, /预览并再次确认前不会写入/u);
+});
+
+test("wires an explicit local content-lead priority board without automatic ranking", () => {
+  for (const id of ["content-priority-board", "content-priority-state", "content-priority-summary", "content-priority-lanes", "content-priority-feedback"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.match(html, /立即做 \/ 本周 \/ 候选 \/ 暂停/u);
+  assert.match(html, /不根据 ROI、历史爆款或平台数据自动排名/u);
+  assert.match(script, /mountContentPriorityBoard/u);
+  assert.match(script, /setProjectContentPriority/u);
+  assert.match(script, /moveProjectContentPriority/u);
+  assert.match(script, /clearProjectContentPriority/u);
+  assert.match(script, /contentPriorityBoard\.unsavedDraftCount\(\)/u);
+  assert.match(contentPriorityScript, /CONTENT_PRIORITY_LANES/u);
+  assert.match(contentPriorityScript, /manualOrder/u);
+  assert.doesNotMatch(contentPriorityScript, /\broi\b|千川接口|抖音接口/iu);
+  assert.doesNotMatch(contentPriorityUiScript, /fetch\s*\(|XMLHttpRequest|chrome\.storage/iu);
+  assert.match(css, /\.content-priority-board\s*\{[^}]*background:\s*#ffffff/iu);
+  assert.match(css, /@media \(max-width:\s*400px\)[\s\S]*\.content-priority-form, \.content-priority-card-actions\s*\{[^}]*grid-template-columns:\s*1fr/iu);
+});
+
+test("puts a local cross-project production command board before the priority editor", () => {
+  for (const id of ["production-command-board", "production-command-title", "production-command-state", "production-command-summary", "production-command-list", "production-command-feedback", "refresh-production-command", "copy-production-shift-brief", "manage-content-priority"]) {
+    assert.match(html, new RegExp(`id="${id}"`, "u"));
+  }
+  assert.ok(html.indexOf('id="project-hub"') < html.indexOf('id="production-command-board"'));
+  assert.ok(html.indexOf('id="production-command-board"') < html.indexOf('id="content-priority-board"'));
+  assert.match(html, /人工排期决定顺序/u);
+  assert.match(html, /不按 ROI、消耗或历史爆款自动排名/u);
+  assert.match(html, /当前项目其他工作 · 仅本地/u);
+  assert.match(script, /mountProductionCommandBoard/u);
+  assert.match(script, /readProductionCommandSnapshot/u);
+  assert.match(script, /refreshProductionCommandBoard\(\{ consumePending: true \}\)/u);
+  assert.match(script, /route\.type === "refresh"[\s\S]*scheduleProductionCommandRefresh\(0\)/u);
+  assert.match(script, /route\.type === "sync_versions"[\s\S]*persistCurrentProject\(\{[\s\S]*syncPlan: true/u);
+  assert.match(script, /command\.route\?\.type === "take_review" \|\| command\.route\?\.type === "sync_versions"/u);
+  assert.match(script, /PRODUCTION_COMMAND_ROUTE_KEY/u);
+  assert.match(script, /pendingRouteMatchesCommand/u);
+  assert.match(script, /function shouldDeferStartupVersionSyncForPendingCommand\(\)/u);
+  assert.match(script, /syncPlan: Boolean\(state\.plan\?\.items\?\.length\) && !deferVersionSync/u);
+  assert.match(script, /if \(!state\.plan\?\.items\?\.length \|\| deferVersionSync\) await refreshExperimentLoop\(\)/u);
+  const deferIndex = script.indexOf("const deferVersionSync = await shouldDeferStartupVersionSyncForPendingCommand()");
+  const persistIndex = script.indexOf("await persistCurrentProject({ syncPlan:", deferIndex);
+  const consumeIndex = script.indexOf("await refreshProductionCommandBoard({ consumePending: true })", persistIndex);
+  assert.ok(deferIndex >= 0 && deferIndex < persistIndex && persistIndex < consumeIndex);
+  assert.match(script, /route\.type === "priority"[\s\S]*openContentPriorityManager\(command\.projectId\)[\s\S]*production_paused[\s\S]*移入“暂停”泳道[\s\S]*production_launched[\s\S]*移出“立即做”泳道/u);
+  assert.match(script, /buildProductionShiftBrief\(board, \{ today: localCalendarDate\(\) \}\)/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(brief\.text\)/u);
+  assert.match(script, /window\.addEventListener\("focus"[\s\S]*refreshProductionCommandBoard/u);
+  assert.match(productionCommandScript, /buildContentPriorityBoard/u);
+  assert.match(productionCommandScript, /manualOrder/u);
+  assert.match(productionCommandScript, /actionLabel: "重新同步当前方案版本"[\s\S]*route: \{ type: "sync_versions" \}/u);
+  assert.doesNotMatch(productionCommandScript, /targetRoi|\broi\b|\bgmv\b|\bspend\b/iu);
+  assert.doesNotMatch(productionCommandUiScript, /fetch\s*\(|XMLHttpRequest|chrome\.storage/iu);
+  assert.doesNotMatch(productionCommandSourceScript, /listResults|exportPortfolio|fetch\s*\(/iu);
+  assert.match(productionCommandRouteScript, /5 \* 60 \* 1000/u);
+  assert.match(css, /\.production-command-board\s*\{[^}]*border:\s*2px solid #111111[^}]*background:\s*#ffffff/iu);
+  assert.match(css, /@media \(max-width:\s*400px\)[\s\S]*\.production-command-card\s*\{[^}]*grid-template-columns:\s*1fr/iu);
 });
 
 test("uses a readable black-and-white paper layout without changing workspace ids", () => {
@@ -446,7 +512,8 @@ test("fails closed on background and delayed local-storage writes", () => {
   assert.match(serviceWorkerScript, /try \{[\s\S]*setPanelBehavior[\s\S]*catch/u);
   assert.match(script, /const planAutosave = createPlanAutosave/u);
   assert.match(script, /planAutosave\.schedule\(\)/u);
-  assert.equal((script.match(/planAutosave\.flush\(\)/gu) || []).length, 3);
+  assert.equal((script.match(/planAutosave\.flush\(\)/gu) || []).length, 5);
+  assert.match(script, /openTakeReviewWorkbench[\s\S]*planAutosave\.flush\(\)[\s\S]*persistCurrentProject\(\{ syncPlan: true/u);
   assert.doesNotMatch(script, /planSaveTimer|function schedulePlanSave/u);
   assert.equal((script.match(/chrome\.storage\.local\.set\(\{ creativePlan:/gu) || []).length, 1);
   assert.match(script, /pendingPlanParentVersionId = parentVersionId/u);
@@ -660,6 +727,8 @@ test("exposes an honest user-confirmed update center", () => {
   assert.match(html, /id="dismiss-task-migration"/u);
   assert.match(script, /\$\("#task-migration-message"\)\.textContent/u);
   assert.match(script, /const rollbackPortfolio = await state\.projectRepository\.exportPortfolio\(\)/u);
+  assert.match(script, /\$\("#export-update-backup"\)\.addEventListener\("click", async \(\) => \{[\s\S]*const persisted = await persistCurrentProject\(\{ quiet: true \}\);[\s\S]*if \(!persisted\) throw new Error\("当前项目未能同步到本地项目库，已取消备份导出"\);[\s\S]*const snapshot = safeUpdateSnapshot/u);
+  assert.match(script, /const backupText = JSON\.stringify\(snapshot, null, 2\);[\s\S]*NON_MEDIA_IMPORT_POLICIES\.backup\.maxBytes[\s\S]*download\([^\n]*backupText/u);
   assert.match(script, /导入未完成，已恢复原项目集合和当前工作区/u);
   assert.match(html, /id="maintenance-center"[^>]*class="card maintenance-center"/u);
   assert.match(html, /<summary><span>维护与隐私<\/span><small>更新 · 备份 · 边界说明<\/small><\/summary>/u);

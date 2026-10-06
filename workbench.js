@@ -7,6 +7,7 @@ import {
   validateDouyinSourceNote
 } from "./src/material-analysis.js";
 import { parseTranscriptDocument, transcriptDocumentMatchesText } from "./src/timed-transcript.js";
+import { mountClipReview } from "./src/clip-review-ui.js";
 import {
   CREATIVE_REVISION_EDITABLE_FIELDS,
   creativeRevisionToMarkdown,
@@ -62,6 +63,13 @@ const state = {
   flowModel: null
 };
 
+const clipReview = mountClipReview({
+  root: document,
+  downloadBlob,
+  onChange: () => updateWorkbenchOverview(),
+  confirmDiscard: (message) => window.confirm(message)
+});
+
 function setStatus(selector, text, good = false) {
   const node = $(selector);
   if (node.textContent !== text) node.textContent = text;
@@ -93,6 +101,7 @@ function transcriptDurationLabel(milliseconds) {
 }
 
 function renderTranscriptMetadata(value) {
+  clipReview.setTranscript(state.transcriptDocument, $("#transcript-text").value);
   const panel = $("#transcript-metadata");
   if (!value) {
     panel.hidden = true;
@@ -380,6 +389,7 @@ function workbenchResetSnapshot() {
     hasRevisionDraft: Boolean(state.revisionDraft),
     revisionPreserved: state.revisionPreserved,
     handoffState: state.handoffState,
+    ...clipReview.snapshot(),
     hasSetupValues,
     hasFeedback: feedbackSelectors.some((selector) => $(selector).textContent.trim())
   };
@@ -387,6 +397,7 @@ function workbenchResetSnapshot() {
 
 function resetWorkbenchSession() {
   workbenchOperations.invalidateAll();
+  clipReview.reset();
   state.entryMode = "";
   state.files = [];
   state.processingManifest = null;
@@ -1102,6 +1113,15 @@ function renderStructureAnalysis(result) {
     const card = element("article", "segment");
     card.append(element("small", "segment-source", `${segment.index}. ${segmentSourceLabel(segment)}`));
     card.append(element("p", "", segment.content));
+    if (Number.isInteger(segment.source?.startMs)) {
+      const locate = element("button", "secondary", "定位原片画面");
+      locate.type = "button";
+      locate.addEventListener("click", () => {
+        clipReview.openCue(segment.source.cueIndex || segment.index);
+        $("#clip-review-panel").scrollIntoView({ block: "start", behavior: "auto" });
+      });
+      card.append(locate);
+    }
     if (segment.tags.length) {
       const tags = element("div", "tags");
       for (const id of segment.tags) tags.append(element("span", "", result.coverage[id].label));

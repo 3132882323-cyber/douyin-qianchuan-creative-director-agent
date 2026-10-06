@@ -1,10 +1,12 @@
 import { normalizeCreativeTask } from "./core.js";
+import { sanitizeContentPriority } from "./content-priority.js";
 import { assessExperimentDecision, sanitizeExperimentDecision } from "./experiment-decision.js";
 import { EXPERIMENT_QUALITY_WARNING_LABELS } from "./experiment-results.js";
 import { sanitizeProductionStatus } from "./production-status.js";
+import { TAKE_REVIEW_LIMITS, sanitizeTakeReviewRecord } from "./take-review-record.js";
 import { sanitizedAnalysis, sanitizedCreativePlan, sanitizedTargetRoi } from "./update.js";
 
-export const PROJECT_PORTFOLIO_SCHEMA_VERSION = 1;
+export const PROJECT_PORTFOLIO_SCHEMA_VERSION = 2;
 export const PROJECT_LIMITS = Object.freeze({
   maxProjects: 20,
   maxVersionsPerProject: 500,
@@ -92,7 +94,7 @@ export function sanitizeProjectWorkspace(value = {}) {
   };
 }
 
-export function createProjectRecord({ id = createProjectId(), name = "未命名项目", workspace = emptyProjectWorkspace(), now = new Date().toISOString() } = {}) {
+export function createProjectRecord({ id = createProjectId(), name = "未命名项目", workspace = emptyProjectWorkspace(), contentPriority = null, now = new Date().toISOString() } = {}) {
   const timestamp = exactIso(now, "项目创建");
   return {
     id: safeProjectId(id),
@@ -100,6 +102,7 @@ export function createProjectRecord({ id = createProjectId(), name = "未命名�
     createdAt: timestamp,
     updatedAt: timestamp,
     archived: false,
+    contentPriority: sanitizeContentPriority(contentPriority, { allowNull: true }),
     workspace: sanitizeProjectWorkspace(workspace)
   };
 }
@@ -112,6 +115,7 @@ export function sanitizeProjectRecord(value) {
     createdAt: exactIso(value.createdAt, "项目创建"),
     updatedAt: exactIso(value.updatedAt, "项目更新"),
     archived: value.archived === true,
+    contentPriority: sanitizeContentPriority(value.contentPriority, { allowNull: true }),
     workspace: sanitizeProjectWorkspace(value.workspace)
   };
 }
@@ -278,11 +282,12 @@ export function buildVersionTimeline(versions = [], results = [], targetRoi = 1.
 }
 
 export function validateProjectPortfolio(value) {
-  if (!isRecord(value) || value.schemaVersion !== PROJECT_PORTFOLIO_SCHEMA_VERSION) throw new Error("项目集合备份版本不受支持");
+  if (!isRecord(value) || ![1, PROJECT_PORTFOLIO_SCHEMA_VERSION].includes(value.schemaVersion)) throw new Error("项目集合备份版本不受支持");
   const byteLength = new TextEncoder().encode(JSON.stringify(value)).byteLength;
   if (byteLength > PROJECT_LIMITS.maxPortfolioBytes) throw new Error("项目集合备份超过 12 MB 上限");
   if (!Array.isArray(value.projects) || !value.projects.length || value.projects.length > PROJECT_LIMITS.maxProjects) throw new Error("项目集合数量无效");
   if (!Array.isArray(value.versions) || !Array.isArray(value.results)) throw new Error("项目集合缺少版本或结果列表");
+  if (value.schemaVersion === PROJECT_PORTFOLIO_SCHEMA_VERSION && !Array.isArray(value.takeReviews)) throw new Error("项目集合缺少人工过条记录列表");
   const projects = value.projects.map(sanitizeProjectRecord);
   const projectIds = new Set();
   for (const project of projects) {
@@ -323,7 +328,48 @@ export function validateProjectPortfolio(value) {
     resultCounts.set(result.projectId, (resultCounts.get(result.projectId) || 0) + 1);
     if (resultCounts.get(result.projectId) > PROJECT_LIMITS.maxResultsPerProject) throw new Error("单项目结果记录超过 500 条上限");
   }
-  return { schemaVersion: PROJECT_PORTFOLIO_SCHEMA_VERSION, currentProjectId, projects, versions, results };
+  const takeReviews = value.schemaVersion === 1 ? [] : value.takeReviews.map(sanitizeTakeReviewRecord);
+  const takeReviewIds = new Set();
+  const takeReviewCounts = new Map();
+  const takeReviewVersionCounts = new Map();
+  const takeReviewNaturalKeys = new Set();
+  const takeReviewRoleKeys = new Set();
+  const takeReviewOrderKeys = new Set();
+  for (const takeReview of takeReviews) {
+    const versionId = versionRecordId(takeReview.projectId, takeReview.source.testId);
+    if (!projectIds.has(takeReview.projectId) || !versionIds.has(versionId)) throw new Error("人工过条记录引用了不存在的项目或测试版本");
+    if (versionMap.get(versionId)?.batchId !== takeReview.source.batchId) throw new Error("人工过条记录引用的测试批次与版本不一致");
+    if (takeReviewIds.has(takeReview.id)) throw new Error("项目集合包含重复的人工过条记录");
+    takeReviewIds.add(takeReview.id);
+    takeReviewCounts.set(takeReview.projectId, (takeReviewCounts.get(takeReview.projectId) || 0) + 1);
+    takeReviewVersionCounts.set(versionId, (takeReviewVersionCounts.get(versionId) || 0) + 1);
+    if (takeReviewCounts.get(takeReview.projectId) > TAKE_REVIEW_LIMITS.maxPerProject) throw new Error(`单项目人工过条记录超过 ${TAKE_REVIEW_LIMITS.maxPerProject} 条上限`);
+    if (takeReviewVersionCounts.get(versionId) > TAKE_REVIEW_LIMITS.maxPerVersion) throw new Error(`单版本人工过条记录超过 ${TAKE_REVIEW_LIMITS.maxPerVersion} 条上限`);
+    if (takeReview.createdOrder) {
+      const orderKey = `${versionId}\u0000${takeReview.createdOrder}`;
+      if (takeReviewOrderKeys.has(orderKey)) throw new Error("同一版本包含重复的人工过条创建顺序");
+      takeReviewOrderKeys.add(orderKey);
+    }
+    const sourceKey = [
+      versionId,
+      takeReview.source.planFingerprint,
+      takeReview.source.versionFingerprint,
+      takeReview.source.reviewFingerprint
+    ].join("\u0000");
+    const naturalKey = [
+      sourceKey,
+      takeReview.materialCode.toLocaleLowerCase("zh-CN"),
+      takeReview.takeNumber.toLocaleLowerCase("zh-CN")
+    ].join("\u0000");
+    if (takeReviewNaturalKeys.has(naturalKey)) throw new Error("同一版本包含重复的素材编号与 Take 编号");
+    takeReviewNaturalKeys.add(naturalKey);
+    if (takeReview.handoffRole !== "none") {
+      const roleKey = `${sourceKey}\u0000${takeReview.handoffRole}`;
+      if (takeReviewRoleKeys.has(roleKey)) throw new Error("同一来源版本只能指定一个人工首选或备选 Take");
+      takeReviewRoleKeys.add(roleKey);
+    }
+  }
+  return { schemaVersion: PROJECT_PORTFOLIO_SCHEMA_VERSION, currentProjectId, projects, versions, results, takeReviews };
 }
 
 export function projectWorkspaceStorageWrite(workspace) {

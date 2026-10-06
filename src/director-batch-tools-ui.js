@@ -63,7 +63,7 @@ export function mountDirectorBatchTools({ root, getPlan, getPlanStale, getRevisi
       disableAll(!ready);
       setText(stateNode, ready ? `${board.total} 条 · 只改${board.variableLabel}` : `待修正 ${board.blockers.length} 项`);
       setText(summaryNode, ready
-        ? `按 1 拍摄、2 接片、3 剪辑、4 验收顺序使用；B00 锁定后再处理 ${Math.max(0, board.entries.length - 1)} 条变体。`
+        ? `按 1 拍摄、2 应急模板、3 剪辑、4 验收顺序使用；正式接片请进入片场过条台，B00 锁定后再处理 ${Math.max(0, board.entries.length - 1)} 条变体。`
         : `批次生产资料暂不可用：${board.blockers.slice(0, 3).join("；")}${board.blockers.length > 3 ? `；另有 ${board.blockers.length - 3} 项` : ""}`);
       return board;
     } catch (error) {
@@ -89,7 +89,7 @@ export function mountDirectorBatchTools({ root, getPlan, getPlanStale, getRevisi
         const handoff = buildDirectorTakeHandoff(plan);
         await clipboardWriter(directorTakeHandoffToText(handoff));
         if (operation !== copySequence || revisionReader() !== revision || staleReader()) return false;
-        setText(feedbackNode, `已复制 ${handoff.batchId} 的收工接片单；撤场前请逐条填写实际文件与首选 Take，并明确齐全可交剪或必须补拍。`);
+        setText(feedbackNode, `已复制 ${handoff.batchId} 的应急空白接片模板；正式接片请优先使用片场过条台保存人工结论与首选 Take。`);
       } else if (kind === "edit") {
         await clipboardWriter(directorBatchEditAssemblyToText(board));
         if (operation !== copySequence || revisionReader() !== revision || staleReader()) return false;
@@ -102,7 +102,7 @@ export function mountDirectorBatchTools({ root, getPlan, getPlanStale, getRevisi
       return true;
     } catch (error) {
       if (operation !== copySequence || revisionReader() !== revision || staleReader()) return false;
-      const labels = { shoot: "批次拍摄镜头板", take: "批次收工接片单", edit: "批次剪辑装配单", review: "批次成片验收单" };
+      const labels = { shoot: "批次拍摄镜头板", take: "应急空白接片模板", edit: "批次剪辑装配单", review: "批次成片验收单" };
       setText(feedbackNode, error.message || `${labels[kind] || "批次生产资料"}复制失败，请检查变量边界与现场字段。`);
       return false;
     }

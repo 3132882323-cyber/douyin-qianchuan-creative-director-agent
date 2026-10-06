@@ -247,6 +247,45 @@
           <div class="wide"><dt>本地内容指纹</dt><dd id="transcript-fingerprint">—</dd></div>
           <div class="wide"><dt>导入提醒</dt><dd id="transcript-warning-summary">无</dd></div>
         </dl>
+        <details id="clip-review-panel" class="clip-review-panel">
+          <summary><strong>逐句看片与分镜截图</strong><span>对照原片 · 按句定位 · 人工选帧</span></summary>
+          <div class="clip-review-body">
+            <p class="help">选择自有或已授权的同一份原片，核对转写里的钩子、证据和画面。SRT / VTT 可按句定位；正文改动后需重新导入时间码。截图与备注只在本页，关闭前请导出。</p>
+            <p class="help">对照原片支持 MP4 / M4V / MOV / WebM，最大 2 GB。</p>
+            <button id="clip-review-choose" type="button" class="secondary" aria-controls="clip-review-file" aria-describedby="clip-review-media-label clip-review-error">选择 / 更换对照原片</button>
+            <input id="clip-review-file" type="file" accept=".mp4,.m4v,.mov,.webm" aria-label="选择本地对照原片" hidden>
+            <p id="clip-review-media-label" class="help">尚未选择对照原片</p>
+            <div class="clip-review-layout">
+              <div class="clip-review-player">
+                <video id="clip-review-video" controls playsinline preload="metadata" aria-label="本地对照视频" hidden></video>
+                <p id="clip-review-caption" class="clip-review-caption" aria-label="已定位的原句"></p>
+                <div class="clip-review-tools">
+                  <span id="clip-review-clock" class="clip-review-clock" aria-label="播放器当前时间">00:00:00.000</span>
+                  <label>播放速度<select id="clip-review-rate" disabled><option value="0.5">0.5 倍</option><option value="0.75">0.75 倍</option><option value="1" selected>1 倍</option><option value="1.25">1.25 倍</option><option value="1.5">1.5 倍</option></select></label>
+                  <label>字幕时间偏移（秒）<input id="clip-review-offset" type="number" min="-600" max="600" step="0.1" value="0"></label>
+                </div>
+                <p id="clip-review-selection" class="help">请选择一句定位原片。</p>
+                <div class="clip-review-actions">
+                  <button id="clip-review-loop" type="button" class="secondary" aria-pressed="false" disabled>循环本句</button>
+                  <button id="clip-review-capture" type="button" class="secondary" disabled>截取当前画面</button>
+                  <button id="clip-review-release" type="button" class="secondary" disabled>释放对照原片</button>
+                </div>
+              </div>
+              <div class="clip-review-transcript">
+                <h3>按句定位原片</h3>
+                <div id="clip-review-cues" class="clip-review-cues"></div>
+                <p id="clip-review-page" class="help">导入 SRT / VTT 后可按句定位；普通文本仍可手动看片截图。</p>
+                <div class="clip-review-actions"><button id="clip-review-prev" type="button" class="secondary" disabled>上一页</button><button id="clip-review-next" type="button" class="secondary" disabled>下一页</button></div>
+              </div>
+            </div>
+            <div class="clip-review-board-head"><h3>人工分镜</h3><span id="clip-review-count" role="status" aria-live="polite">0 / 12 张</span></div>
+            <div id="clip-review-captures" class="clip-review-captures"></div>
+            <div class="clip-review-actions"><button id="clip-review-export" type="button" class="secondary" disabled>导出带时间码与备注的分镜 PNG</button><button id="clip-review-clear" type="button" class="secondary" disabled>清空本页分镜</button></div>
+            <p class="help">画面按原比例缩至最长边 960 px，最多 12 张；这是看片分镜预览图，剪辑请使用原片。导出只截取你选择的画面，不会修改原片。</p>
+            <p id="clip-review-message" class="status-message" role="status" aria-live="polite"></p>
+            <p id="clip-review-error" class="error" role="alert"></p>
+          </div>
+        </details>
         <p id="transcription-message" class="status-message" role="status" aria-live="polite"></p>
         <p id="transcription-error" class="error" role="alert"></p>
       </section>

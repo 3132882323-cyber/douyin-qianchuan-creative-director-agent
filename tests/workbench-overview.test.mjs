@@ -40,6 +40,12 @@ test("warns before unload only when page-only work would be lost", () => {
   assert.equal(hasWorkbenchUnloadRisk({ processingTaskCount: 2, processingExported: true }), false);
   assert.equal(hasWorkbenchUnloadRisk({ hasAnalysis: true, analysisPreserved: false }), true);
   assert.equal(hasWorkbenchUnloadRisk({ hasAnalysis: true, analysisPreserved: true }), false);
+  assert.equal(hasWorkbenchUnloadRisk({ clipCaptureCount: 2, clipCapturesPreserved: false }), true);
+  assert.equal(hasWorkbenchUnloadRisk({ clipCaptureCount: 2, clipCapturesPreserved: true }), false);
+  const shotReset = buildWorkbenchResetPrompt({ clipCaptureCount: 2, hasPreviewMedia: true });
+  assert.match(shotReset.message, /2 张分镜截图与画面备注/u);
+  assert.match(shotReset.message, /本地对照原片选择/u);
+  assert.deepEqual(shotReset.atRisk, ["尚未导出的分镜截图与画面备注"]);
 });
 
 test("starts without forcing every user into the video route", () => {

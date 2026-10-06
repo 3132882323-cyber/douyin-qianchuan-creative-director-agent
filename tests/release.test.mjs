@@ -7,8 +7,10 @@ const paths = {
   package: "../package.json",
   sidepanelHtml: "../sidepanel.html",
   workbenchHtml: "../workbench.html",
+  takeReviewWorkbenchHtml: "../take-review-workbench.html",
   sidepanelJs: "../sidepanel.js",
   workbenchJs: "../workbench.js",
+  takeReviewWorkbenchJs: "../take-review-workbench.js",
   serviceWorker: "../service-worker.js",
   core: "../src/core.js",
   update: "../src/update.js",
@@ -17,6 +19,8 @@ const paths = {
   localFileGuard: "../src/local-file-guard.js",
   materialAnalysis: "../src/material-analysis.js",
   timedTranscript: "../src/timed-transcript.js",
+  clipReview: "../src/clip-review.js",
+  clipReviewUi: "../src/clip-review-ui.js",
   revisionId: "../src/revision-id.js",
   creativeRevision: "../src/creative-revision.js",
   releaseSafety: "../src/release-safety.js",
@@ -26,6 +30,14 @@ const paths = {
   recentWork: "../src/recent-work.js",
   analysisHandoff: "../src/analysis-handoff.js",
   analysisHandoffInbox: "../src/analysis-handoff-inbox.js",
+  contentPriority: "../src/content-priority.js",
+  contentPriorityUi: "../src/content-priority-ui.js",
+  productionCommand: "../src/production-command.js",
+  productionCommandUi: "../src/production-command-ui.js",
+  productionCommandSource: "../src/production-command-source.js",
+  productionCommandRoute: "../src/production-command-route.js",
+  productionShiftBrief: "../src/production-shift-brief.js",
+  takeReviewRecord: "../src/take-review-record.js",
   projectModel: "../src/project-model.js",
   projectStore: "../src/project-store.js",
   experimentResults: "../src/experiment-results.js",
@@ -74,6 +86,7 @@ test("keeps every user-visible V1.4 source version aligned", () => {
   assert.equal(packageJson.version, "1.4.0");
   assert.match(files.sidepanelHtml, /V1\.4\.0/u);
   assert.match(files.workbenchHtml, /V1\.4\.0/u);
+  assert.match(files.takeReviewWorkbenchHtml, /V1\.4\.0/u);
   assert.match(files.core, /version: "1\.4\.0"/u);
   assert.match(files.transcode, /creatorVersion \|\| "1\.4\.0"/u);
   assert.match(files.readme, /V1\.4\.0/u);
@@ -99,17 +112,20 @@ test("checks every shipped JavaScript entry and safety module", () => {
   const packageJson = JSON.parse(files.package);
   const checkedFiles = [...packageJson.scripts.check.matchAll(/node --check ([^&]+?\.js)/gu)].map((match) => match[1].trim());
   assert.ok(checkedFiles.length >= 15);
-  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/operation-guard.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/operator-handoff.js", "src/operator-batch-handoff.js", "src/inspiration-relay.js", "src/director-monitor-card.js", "src/director-monitor-ui.js", "src/director-item-run-sheet-ui.js", "src/director-blind-review.js", "src/director-blind-review-ui.js", "src/director-batch-board.js", "src/director-take-handoff.js", "src/director-batch-tools-ui.js", "src/plan-autosave.js", "src/plan-editor-ui.js", "src/plan-derived-refresh.js", "src/plan-output-controller.js", "src/plan-gap-navigator.js", "src/director-desk.js", "src/production-status.js", "vendor/idb.js"]) {
+  for (const required of ["service-worker.js", "sidepanel.js", "workbench.js", "take-review-workbench.js", "src/timed-transcript.js", "src/revision-id.js", "src/creative-revision.js", "src/release-safety.js", "src/workspace-recovery.js", "src/workbench-overview.js", "src/operation-guard.js", "src/recent-work.js", "src/analysis-handoff.js", "src/analysis-handoff-inbox.js", "src/content-priority.js", "src/content-priority-ui.js", "src/production-command.js", "src/production-command-ui.js", "src/production-command-source.js", "src/production-command-route.js", "src/production-shift-brief.js", "src/take-review-record.js", "src/project-model.js", "src/project-store.js", "src/experiment-results.js", "src/experiment-decision.js", "src/experiment-actions.js", "src/experiment-ledger.js", "src/experiment-view.js", "src/experiment-comparison.js", "src/creative-version-diff.js", "src/operator-handoff.js", "src/operator-batch-handoff.js", "src/inspiration-relay.js", "src/director-monitor-card.js", "src/director-monitor-ui.js", "src/director-item-run-sheet-ui.js", "src/director-blind-review.js", "src/director-blind-review-ui.js", "src/director-batch-board.js", "src/director-take-handoff.js", "src/director-batch-tools-ui.js", "src/plan-autosave.js", "src/plan-editor-ui.js", "src/plan-derived-refresh.js", "src/plan-output-controller.js", "src/plan-gap-navigator.js", "src/director-desk.js", "src/production-status.js", "vendor/idb.js"]) {
     assert.ok(checkedFiles.includes(required), `${required} must be syntax checked`);
   }
   assert.ok(checkedFiles.includes("src/director-take-review.js"), "src/director-take-review.js must be syntax checked");
+  assert.ok(checkedFiles.includes("src/clip-review.js"));
+  assert.ok(checkedFiles.includes("src/clip-review-ui.js"));
 });
 
 test("does not introduce remote runtime code or unsafe HTML execution sinks", () => {
-  const html = `${files.sidepanelHtml}\n${files.workbenchHtml}`;
+  const html = `${files.sidepanelHtml}\n${files.workbenchHtml}\n${files.takeReviewWorkbenchHtml}`;
   const executableSource = [
     files.sidepanelJs,
     files.workbenchJs,
+    files.takeReviewWorkbenchJs,
     files.serviceWorker,
     files.core,
     files.update,
@@ -118,6 +134,8 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.localFileGuard,
     files.materialAnalysis,
     files.timedTranscript,
+    files.clipReview,
+    files.clipReviewUi,
     files.revisionId,
     files.creativeRevision,
     files.releaseSafety,
@@ -127,6 +145,14 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
     files.recentWork,
     files.analysisHandoff,
     files.analysisHandoffInbox,
+    files.contentPriority,
+    files.contentPriorityUi,
+    files.productionCommand,
+    files.productionCommandUi,
+    files.productionCommandSource,
+    files.productionCommandRoute,
+    files.productionShiftBrief,
+    files.takeReviewRecord,
     files.projectModel,
     files.projectStore,
     files.experimentResults,
@@ -163,13 +189,16 @@ test("does not introduce remote runtime code or unsafe HTML execution sinks", ()
 });
 
 test("keeps shipped HTML ids unique and workbench buttons explicit", () => {
-  for (const [name, html] of [["sidepanel", files.sidepanelHtml], ["workbench", files.workbenchHtml]]) {
+  for (const [name, html] of [["sidepanel", files.sidepanelHtml], ["workbench", files.workbenchHtml], ["take review workbench", files.takeReviewWorkbenchHtml]]) {
     const ids = [...html.matchAll(/\bid="([^"]+)"/gu)].map((match) => match[1]);
     assert.equal(new Set(ids).size, ids.length, `${name} contains duplicate ids`);
   }
   const workbenchButtons = [...files.workbenchHtml.matchAll(/<button\b([^>]*)>/giu)].map((match) => match[1]);
   assert.ok(workbenchButtons.length > 0);
   assert.ok(workbenchButtons.every((attributes) => /\btype="button"/iu.test(attributes)), "every workbench button must declare type=button");
+  const takeReviewButtons = [...files.takeReviewWorkbenchHtml.matchAll(/<button\b([^>]*)>/giu)].map((match) => match[1]);
+  assert.ok(takeReviewButtons.length > 0);
+  assert.ok(takeReviewButtons.every((attributes) => /\btype="(?:button|submit)"/iu.test(attributes)), "every take review workbench button must declare a safe type");
 });
 
 test("ships the open-source release, privacy and rollback handoff", () => {

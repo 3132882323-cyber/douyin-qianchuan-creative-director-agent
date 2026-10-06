@@ -80,7 +80,9 @@ test("builds a deterministic wrap handoff with shared-shot and manual take slots
   assert.ok(first.sharedRules.length > 0);
   assert.deepEqual(first.sharedCaptureSlots.map((slot) => slot.label), ["完整证据全程", "关键细节特写", "场景与环境空镜", "结尾净版", "环境声与同步声", "剪辑余量"]);
   const output = directorTakeHandoffToText(first);
-  assert.match(output, /批次收工接片单/u);
+  assert.match(output, /应急空白接片模板/u);
+  assert.match(output, /正式接片请优先回到片场过条台/u);
+  assert.match(output, /不会保存填写结果/u);
   assert.match(output, /当前批次共用边界/u);
   assert.match(output, /保险素材接片区/u);
   assert.match(output, /C01 · 完整证据全程/u);
@@ -94,7 +96,7 @@ test("builds a deterministic wrap handoff with shared-shot and manual take slots
   assert.match(output, /缺失项：________/u);
   assert.match(output, /可交剪.*需补拍.*必须二选一/u);
   assert.match(output, /批次收工闸门/u);
-  assert.match(output, /不扫描或读取媒体、不自动选择最佳 Take、不修改方案或制作状态/u);
+  assert.match(output, /不扫描或读取媒体、不自动选择最佳 Take、不保存填写结果、不修改方案或制作状态/u);
   const sharedSection = output.slice(output.indexOf("## 保险素材接片区"), output.indexOf("## 逐版本接片与最终剪辑映射"));
   assert.doesNotMatch(sharedSection, /计划 B00 母版|先按 B00 完整拍/u);
   assert.equal(occurrenceCount(output, "实际文件序号/文件名：________"), first.sharedCaptureSlots.length + first.entries.length);

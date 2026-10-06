@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>片场过条台 · 抖音千川素材编导 Agent</title>
+  <link rel="stylesheet" href="take-review-workbench.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">导</span>
+      <div>
+        <p>抖音千川素材编导 Agent · V1.4.0</p>
+        <h1>片场过条台</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="local-only">仅本地记录 · 不读取视频</span>
+      <button id="reload-workbench" type="button" class="button secondary">重新载入</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="loading-state" class="notice" role="status" aria-live="polite">正在读取当前项目与批次记录…</section>
+    <section id="fatal-state" class="notice error" role="alert" hidden>
+      <strong>片场过条台暂不可用</strong>
+      <p id="fatal-message">请返回侧边栏保存当前方案后重试。</p>
+    </section>
+
+    <div id="workbench" hidden>
+      <section class="batch-overview" aria-labelledby="batch-title">
+        <div class="batch-heading">
+          <div>
+            <p class="eyebrow">当前人工批次</p>
+            <h2 id="batch-title">—</h2>
+            <p id="project-name" class="muted">—</p>
+          </div>
+          <span id="batch-status" class="status-badge">待过条</span>
+        </div>
+        <div class="batch-metrics" aria-label="当前批次统计">
+          <div><span>版本</span><strong id="metric-versions">0</strong></div>
+          <div><span>已过条</span><strong id="metric-reviewed">0 / 0</strong></div>
+          <div><span>首选齐备</span><strong id="metric-primary">0 / 0</strong></div>
+          <div><span>待处理</span><strong id="metric-issues">0</strong></div>
+          <div><span>旧记录</span><strong id="metric-stale">0</strong></div>
+        </div>
+        <p id="batch-summary" class="summary">每条版本需要人工指定且仅指定一个首选 Take；系统不会自动判断结论。</p>
+      </section>
+
+      <section id="follow-up-panel" class="follow-up-panel" aria-labelledby="follow-up-title">
+        <div class="panel-heading follow-up-heading">
+          <div>
+            <p class="eyebrow">当前下一动作</p>
+            <h2 id="follow-up-title">现场待办与追拍</h2>
+          </div>
+          <span id="follow-up-count" class="count">0</span>
+        </div>
+        <p id="follow-up-summary" class="panel-help" role="status" aria-live="polite">按当前方案结构与已保存人工登记记录整理，不读取或判断媒体。</p>
+        <div id="follow-up-list" class="follow-up-list"></div>
+        <div class="follow-up-actions">
+          <button id="jump-next-follow-up" type="button" class="button primary">定位下一项</button>
+          <button id="copy-follow-up-sheet" type="button" class="button secondary" disabled>复制现场追拍单</button>
+        </div>
+      </section>
+
+      <div class="workbench-grid">
+        <nav class="version-panel" aria-labelledby="version-panel-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">01</p>
+              <h2 id="version-panel-title">拍摄版本</h2>
+            </div>
+            <span id="version-count" class="count">0</span>
+          </div>
+          <p class="panel-help">先选版本，再登记这个版本实际拍到的 Take。</p>
+          <div id="version-list" class="version-list"></div>
+        </nav>
+
+        <section class="review-panel" aria-labelledby="review-panel-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">02</p>
+              <h2 id="review-panel-title">人工快检</h2>
+            </div>
+            <span id="form-state" class="save-state" role="status" aria-live="polite">未编辑</span>
+          </div>
+
+          <section id="version-source" class="source-card" aria-label="当前版本计划参考">
+            <div><span>测试编号</span><strong id="source-test-id">—</strong></div>
+            <div><span>本条只改</span><strong id="source-variable">—</strong></div>
+            <div class="wide"><span>其余锁定</span><strong id="source-fixed">—</strong></div>
+            <div id="source-warnings" class="wide source-warnings" hidden>
+              <span>当前方案人工复核提醒</span>
+              <ul id="source-warning-list"></ul>
+            </div>
+          </section>
+
+          <form id="take-review-form" novalidate>
+            <input id="review-id" type="hidden">
+            <input id="review-revision" type="hidden" value="0">
+            <div class="form-grid two">
+              <label>
+                <span>素材编号 / 文件标签</span>
+                <input id="material-code" type="text" maxlength="256" autocomplete="off" placeholder="例：A01-CAM1-0042" required>
+                <small>只记录人工标签，不读取文件或路径。</small>
+              </label>
+              <label>
+                <span>Take 编号</span>
+                <input id="take-number" type="text" maxlength="80" autocomplete="off" placeholder="例：Take 03" required>
+                <small>同一版本内不可重复。</small>
+              </label>
+            </div>
+
+            <fieldset class="checks-fieldset">
+              <legend>五项人工快检</legend>
+              <p>必须逐项选择“通过”或“有问题”；系统不会根据勾选自动下结论。</p>
+              <div id="check-list" class="check-list"></div>
+            </fieldset>
+
+            <div class="form-grid two">
+              <label>
+                <span>人工结论</span>
+                <select id="review-outcome" required>
+                  <option value="">请选择，不自动判断</option>
+                  <option value="keep">保留本 Take</option>
+                  <option value="reshoot">立即重拍</option>
+                  <option value="hold">停机核实</option>
+                </select>
+              </label>
+              <label>
+                <span>接片角色</span>
+                <select id="handoff-role">
+                  <option value="none">暂不指定</option>
+                  <option value="primary">首选 Take</option>
+                  <option value="backup">备选 Take</option>
+                </select>
+                <small>只有五项均通过且人工选择“保留”时可指定。</small>
+              </label>
+            </div>
+
+            <section class="issue-fields" aria-labelledby="issue-fields-title">
+              <h3 id="issue-fields-title">问题与下一条修正</h3>
+              <div class="form-grid two">
+                <label>
+                  <span>问题时间码</span>
+                  <input id="issue-timecode" type="text" maxlength="80" autocomplete="off" placeholder="例：00:02.4–00:03.1">
+                </label>
+                <label>
+                  <span>处理负责人</span>
+                  <select id="owner-role"></select>
+                </label>
+                <label class="wide">
+                  <span>下一条修正 / 核实动作</span>
+                  <textarea id="next-correction" maxlength="500" rows="3" placeholder="写清下一条只改什么，或停机后由谁核实什么。"></textarea>
+                </label>
+              </div>
+            </section>
+
+            <p id="form-error" class="form-error" role="alert"></p>
+            <div class="form-actions">
+              <button id="save-take-review" type="submit" class="button primary">保存人工结论</button>
+              <button id="save-and-next-take-review" type="submit" class="button secondary">保存并到下一条</button>
+              <button id="reset-take-review" type="button" class="button secondary">重置表单</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="history-panel" aria-labelledby="history-panel-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">03</p>
+              <h2 id="history-panel-title">本条记录</h2>
+            </div>
+            <span id="history-count" class="count">0</span>
+          </div>
+          <p class="panel-help">当前方案记录可编辑；来源方案变化后保留为只读旧记录。</p>
+          <div id="current-review-list" class="review-list"></div>
+          <details id="stale-reviews" class="stale-reviews" hidden>
+            <summary>查看旧方案记录（<span id="stale-review-count">0</span>）</summary>
+            <div id="stale-review-list" class="review-list"></div>
+          </details>
+        </aside>
+      </div>
+
+      <section class="handoff-panel" aria-labelledby="handoff-title">
+        <div>
+          <p class="eyebrow">04</p>
+          <h2 id="handoff-title">收工接片</h2>
+          <p id="handoff-summary">每个版本都有一个人工首选 Take，且没有未解决的重拍或停机项后，才可生成预填接片单。</p>
+        </div>
+        <div class="handoff-actions">
+          <button id="copy-take-handoff" type="button" class="button primary" disabled>复制预填接片单</button>
+          <button id="export-take-reviews" type="button" class="button secondary" title="只导出当前方案来源下已经保存的人工记录">导出当前来源</button>
+          <button id="clear-take-reviews" type="button" class="button danger">清空当前来源</button>
+        </div>
+        <p id="workbench-feedback" class="feedback" role="status" aria-live="polite"></p>
+      </section>
+
+      <details id="take-history-archive" class="history-archive">
+        <summary>
+          <span><strong>历史批次与容量</strong><small id="history-capacity">0 / 1000 条</small></span>
+          <span id="history-group-count" class="count">0 组</span>
+        </summary>
+        <div class="history-archive-body">
+          <p id="history-archive-summary" class="panel-help">历史记录只保存在当前浏览器；系统不会自动删除。</p>
+          <p id="history-capacity-warning" class="history-capacity-warning" role="alert" hidden></p>
+          <div id="history-batch-list" class="history-batch-list" aria-label="历史过条批次"></div>
+        </div>
+      </details>
+    </div>
+  </main>
+
+  <script type="module" src="take-review-workbench.js"></script>
+</body>
+</html>

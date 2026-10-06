@@ -156,17 +156,21 @@ export function buildWorkbenchResetPrompt({
   revisionPreserved = false,
   handoffState = "idle",
   hasSetupValues = false,
-  hasFeedback = false
+  hasFeedback = false,
+  clipCaptureCount = 0,
+  clipCapturesPreserved = false,
+  hasPreviewMedia = false
 } = {}) {
   const files = safeCount(filesCount);
   const processingTasks = safeCount(processingTaskCount);
   const transcriptionTasks = safeCount(transcriptionTaskCount);
   const characters = safeCount(transcriptLength);
+  const captures = safeCount(clipCaptureCount);
   const analysis = Boolean(hasAnalysis);
   const hasHandoffState = handoffState !== "idle";
   const revision = Boolean(hasRevisionDraft);
   const hasWork = Boolean(
-    entryMode || files || processingTasks || transcriptionTasks || characters || analysis || revision || hasHandoffState || hasSetupValues || hasFeedback
+    entryMode || files || processingTasks || transcriptionTasks || characters || analysis || revision || hasHandoffState || hasSetupValues || hasFeedback || captures || hasPreviewMedia
   );
   const atRisk = [];
   if (processingTasks && !processingExported) atRisk.push("尚未导出的处理任务");
@@ -174,6 +178,7 @@ export function buildWorkbenchResetPrompt({
   if (characters && !transcriptRecoverable) atRisk.push("仅存在本页的手动转写正文");
   if (analysis && !analysisPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功发送的分析结果");
   if (revision && !revisionPreserved && handoffState !== "sent") atRisk.push("尚未导出或成功交接的可拍任务草稿");
+  if (captures && !clipCapturesPreserved) atRisk.push("尚未导出的分镜截图与画面备注");
   const currentItems = [];
   if (files) currentItems.push(`${files} 个视频选择`);
   if (processingTasks) currentItems.push(`${processingTasks} 项处理任务`);
@@ -181,6 +186,8 @@ export function buildWorkbenchResetPrompt({
   if (characters) currentItems.push(`${characters.toLocaleString("zh-CN")} 字符正文`);
   if (analysis) currentItems.push("结构分析与本页交接状态");
   if (revision) currentItems.push("下一版可拍任务草稿");
+  if (captures) currentItems.push(`${captures} 张分镜截图与画面备注`);
+  if (hasPreviewMedia) currentItems.push("本地对照原片选择");
   if (hasSetupValues) currentItems.push("本页路径、授权与引擎参数");
 
   return {

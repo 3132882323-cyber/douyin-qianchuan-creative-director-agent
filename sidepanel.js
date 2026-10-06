@@ -44,7 +44,7 @@ import {
   validateRepairFile,
   validateStaticWebpBytes
 } from "./src/local-image-repair.js";
-import { parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
+import { NON_MEDIA_IMPORT_POLICIES, parseJsonDocument, validateNonMediaImport } from "./src/release-safety.js";
 import { recoverStoredWorkspace } from "./src/workspace-recovery.js";
 import { buildRecentWorkModel } from "./src/recent-work.js";
 import {
@@ -91,6 +91,7 @@ import { assessOperatorHandoffReadiness, buildOperatorSingleVariableDiff, experi
 import { buildLatestOperatorBatchHandoff, latestOperatorBatchToText } from "./src/operator-batch-handoff.js";
 import { buildInspirationRelay, inspirationCardToChallenge, inspirationRelayToText } from "./src/inspiration-relay.js";
 import { mountDirectorMonitorTools } from "./src/director-monitor-ui.js";
+import { buildDirectorTakeReview } from "./src/director-take-review.js";
 import { mountDirectorItemRunSheetTools } from "./src/director-item-run-sheet-ui.js";
 import { mountDirectorBlindReview } from "./src/director-blind-review-ui.js";
 import { mountDirectorBatchTools } from "./src/director-batch-tools-ui.js";
@@ -100,7 +101,18 @@ import { createPlanDerivedRefresh, derivePlanAsyncFeedback } from "./src/plan-de
 import { createRevisionOperationGuard } from "./src/operation-guard.js";
 import { createPlanCompletionTracker, createPlanOutputController } from "./src/plan-output-controller.js";
 import { mountPlanGapNavigator } from "./src/plan-gap-navigator.js";
+import { mountContentPriorityBoard } from "./src/content-priority-ui.js";
+import { mountProductionCommandBoard } from "./src/production-command-ui.js";
+import { readProductionCommandSnapshot } from "./src/production-command-source.js";
+import { buildProductionShiftBrief } from "./src/production-shift-brief.js";
+import {
+  PRODUCTION_COMMAND_ROUTE_KEY,
+  createPendingProductionCommandRoute,
+  pendingRouteMatchesCommand,
+  validatePendingProductionCommandRoute
+} from "./src/production-command-route.js";
 import { buildDirectorDesk } from "./src/director-desk.js";
+import { deriveTakeReviewFollowUps, summarizeTakeReviewBatch } from "./src/take-review-record.js";
 import {
   PRODUCTION_STAGE_DEFINITIONS,
   createProductionStatus,
@@ -138,6 +150,7 @@ const state = {
   projects: [],
   versions: [],
   experimentResults: [],
+  takeReviews: [],
   experimentNextAction: null,
   directorDesk: null,
   recommendedParent: null,
@@ -159,6 +172,7 @@ const state = {
   }
 };
 let taskSaveTimer = null;
+let productionCommandRefreshTimer = null;
 let pendingPlanParentVersionId;
 let onboardingReturnFocus = null;
 let initializationPromise = null;
@@ -226,6 +240,33 @@ const directorBlindReview = mountDirectorBlindReview({
   getPlanStale: () => state.planStale,
   getRevision: () => planInteractionRevision,
   writeText: (value) => navigator.clipboard.writeText(value)
+});
+const contentPriorityBoard = mountContentPriorityBoard({
+  root: document,
+  getProjects: () => {
+    if (!state.projectRepository) throw new Error("本地项目集合不可用，排期台已停止写入。");
+    return state.projects;
+  },
+  getCurrentProjectId: () => state.currentProject?.id || "",
+  savePriority: saveContentPriority,
+  movePriority: moveContentPriority,
+  clearPriority: clearContentPriority,
+  switchProject: switchToProject,
+  confirmClear: (projectName) => window.confirm(`清除“${projectName}”的人工排期、理由与截止日？项目内容不会被删除。`)
+});
+const productionCommandBoard = mountProductionCommandBoard({
+  root: document,
+  loadSnapshot: loadProductionCommandSnapshot,
+  getCurrentProjectId: () => state.currentProject?.id || "",
+  getToday: localCalendarDate,
+  switchProject: switchProductionCommandProject,
+  runCurrentAction: runProductionCommandAction,
+  copyBrief: async (board) => {
+    const brief = buildProductionShiftBrief(board, { today: localCalendarDate() });
+    await navigator.clipboard.writeText(brief.text);
+    return brief;
+  },
+  managePriority: openContentPriorityManager
 });
 const planGapNavigator = mountPlanGapNavigator({
   root: document,
@@ -433,6 +474,154 @@ function creativeTaskHasContent(task = null) {
   return MEANINGFUL_TASK_FIELDS.some((key) => String(source?.[key] ?? "").trim());
 }
 
+function localCalendarDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+async function loadProductionCommandSnapshot() {
+  const repository = state.projectRepository;
+  const currentProjectId = state.currentProject?.id || "";
+  if (!repository || !currentProjectId || state.projectSwitching) throw new Error("本地项目集合正在切换，今日生产指令暂不可用");
+  const snapshot = await readProductionCommandSnapshot(repository, {
+    currentProjectId,
+    today: localCalendarDate()
+  });
+  if (state.projectRepository !== repository || state.currentProject?.id !== currentProjectId || state.projectSwitching) {
+    throw new Error("读取期间项目已经切换，请刷新后重试");
+  }
+  return snapshot;
+}
+
+async function refreshProductionCommandBoard({ consumePending = false } = {}) {
+  if (!productionCommandBoard.mounted) return null;
+  if (productionCommandRefreshTimer) {
+    clearTimeout(productionCommandRefreshTimer);
+    productionCommandRefreshTimer = null;
+  }
+  const board = await productionCommandBoard.refresh();
+  if (consumePending && board) await consumePendingProductionCommand(board);
+  return board;
+}
+
+function scheduleProductionCommandRefresh(delay = 180) {
+  if (!productionCommandBoard.mounted || state.projectSwitching) return;
+  if (productionCommandRefreshTimer) clearTimeout(productionCommandRefreshTimer);
+  productionCommandRefreshTimer = setTimeout(() => {
+    productionCommandRefreshTimer = null;
+    void refreshProductionCommandBoard();
+  }, delay);
+}
+
+function openContentPriorityManager(projectId = "") {
+  const panel = $("#content-priority-board");
+  panel.open = true;
+  const target = projectId
+    ? panel.querySelector(`[data-project-id="${CSS.escape(projectId)}"]`)
+    : null;
+  focusAndReveal(target || panel.querySelector("summary"), { block: "start" });
+}
+
+async function runProductionCommandAction(command) {
+  const route = command?.route;
+  if (!route) throw new Error("该生产动作缺少本地导航目标，请刷新后重试");
+  if (route.type === "workflow") {
+    if (!focusWorkflowTarget(route.targetView, route.focusId)) throw new Error("目标控件已经变化，请刷新后重试");
+    return `已定位：${command.actionLabel || "下一步"}；是否完成仍以人工保存状态为准。`;
+  }
+  if (route.type === "experiment") {
+    const next = route.next || route;
+    if (!runExperimentAction(next)) throw new Error("目标版本已经变化，请刷新后重试");
+    return `已打开处理入口：${command.actionLabel || "下一步"}；是否完成仍以人工保存状态为准。`;
+  }
+  if (route.type === "take_review") {
+    const opened = await openTakeReviewWorkbench(route.testId || command.testId || "");
+    if (opened !== true) throw new Error(String(opened || "片场过条台未能打开，请重试"));
+    return "片场过条台已在新标签页打开；侧边栏会继续保留。";
+  }
+  if (route.type === "priority") {
+    openContentPriorityManager(command.projectId);
+    return command.actionCode === "production_paused"
+      ? "内容排期台已打开；请把当前项目移入“暂停”泳道并保存。"
+      : command.actionCode === "production_launched"
+        ? "内容排期台已打开；请把当前项目移出“立即做”泳道并保存。"
+        : "内容排期台已打开；请人工确认项目顺序。";
+  }
+  if (route.type === "sync_versions") {
+    if (!state.plan?.items?.length) throw new Error("当前项目没有可同步的方案，请先生成方案");
+    if (!await planAutosave.flush()) throw new Error("当前方案仍有未保存修改，请先重试保存");
+    const saved = await persistCurrentProject({
+      syncPlan: true,
+      parentVersionId: pendingPlanParentVersionId,
+      quiet: true
+    });
+    if (!saved) throw new Error("当前方案版本未能同步到本地项目库");
+    return "当前方案版本已重新同步到本地版本库，今日指令将自动刷新。";
+  }
+  if (route.type === "refresh") {
+    // The command button is still busy while this handler runs. Queue the
+    // read so the UI controller can release its re-entry lock first.
+    scheduleProductionCommandRefresh(0);
+    return "正在重新读取本地项目状态…";
+  }
+  throw new Error("该生产动作暂时无法定位，请刷新后重试");
+}
+
+async function clearPendingProductionCommand() {
+  await chrome.storage?.session?.remove?.(PRODUCTION_COMMAND_ROUTE_KEY);
+}
+
+async function shouldDeferStartupVersionSyncForPendingCommand() {
+  if (!state.currentProject || !chrome.storage?.session?.get) return false;
+  try {
+    const stored = await chrome.storage.session.get(PRODUCTION_COMMAND_ROUTE_KEY);
+    return stored?.[PRODUCTION_COMMAND_ROUTE_KEY]?.projectId === state.currentProject.id;
+  } catch {
+    // A failed session read must not allow startup to mutate versions before a
+    // possibly pending cross-project command can be checked.
+    return true;
+  }
+}
+
+async function switchProductionCommandProject(projectId, command) {
+  if (!chrome.storage?.session) throw new Error("当前浏览器不支持安全续接跨项目动作，请使用上方项目选择器切换");
+  const pending = createPendingProductionCommandRoute({ projectId, commandId: command?.id });
+  await chrome.storage.session.set({ [PRODUCTION_COMMAND_ROUTE_KEY]: pending });
+  try {
+    const switched = await switchToProject(projectId);
+    if (!switched) await clearPendingProductionCommand();
+    return switched;
+  } catch (error) {
+    await clearPendingProductionCommand();
+    throw error;
+  }
+}
+
+async function consumePendingProductionCommand(board) {
+  if (!chrome.storage?.session || !state.currentProject) return false;
+  try {
+    const stored = await chrome.storage.session.get(PRODUCTION_COMMAND_ROUTE_KEY);
+    const value = stored?.[PRODUCTION_COMMAND_ROUTE_KEY];
+    if (!value) return false;
+    await clearPendingProductionCommand();
+    const route = validatePendingProductionCommandRoute(value, { currentProjectId: state.currentProject.id });
+    const command = board.commands?.find((candidate) => pendingRouteMatchesCommand(route, candidate));
+    if (!command) throw new Error("项目已切换，但原生产动作已经变化；请按最新卡片继续");
+    if (command.route?.type === "take_review" || command.route?.type === "sync_versions") {
+      const button = document.querySelector(`[data-command-id="${CSS.escape(command.id)}"][data-command-kind="current"]`);
+      setNodeText("#production-command-feedback", `已切换到“${command.name}”；请点击“前往处理”执行：${command.actionLabel}。`);
+      focusAndReveal(button || $("#production-command-board"), { block: "start" });
+      return true;
+    }
+    await runProductionCommandAction(command);
+    setNodeText("#production-command-feedback", `已切换到“${command.name}”并定位：${command.actionLabel}。`);
+    return true;
+  } catch (error) {
+    setNodeText("#production-command-feedback", error.message || "跨项目动作未能续接，请按最新卡片继续");
+    return false;
+  }
+}
+
 function currentProjectWorkspace() {
   return {
     creativeTask: state.creativeTask,
@@ -463,7 +652,8 @@ function renderProjectHub() {
   setNodeText("#project-local-meta", state.currentProject
     ? `${state.versions.length} 个测试版本 · ${state.experimentResults.length} 条结果 · 仅当前浏览器`
     : "项目集合不可用；当前单项目工作区仍可继续使用");
-  setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 今日编导行动台` : "今日编导行动台 · 仅本地");
+  setNodeText("#recent-task-label", state.currentProject ? `${state.currentProject.name} · 当前项目其他工作` : "当前项目其他工作 · 仅本地");
+  contentPriorityBoard.render();
 }
 
 function metricText(result, productionStatus = null) {
@@ -1440,17 +1630,23 @@ async function refreshExperimentLoop({ syncPlan = false, parentVersionId } = {})
   if (!state.projectRepository || !state.currentProject) {
     state.versions = [];
     state.experimentResults = [];
+    state.takeReviews = [];
     renderExperimentLoop();
+    renderTakeReviewWorkbenchEntry();
+    scheduleProductionCommandRefresh();
     return;
   }
   if (syncPlan && state.plan?.items?.length) {
     await state.projectRepository.syncPlan(state.currentProject.id, state.plan, parentVersionId);
   }
-  [state.versions, state.experimentResults] = await Promise.all([
+  [state.versions, state.experimentResults, state.takeReviews] = await Promise.all([
     state.projectRepository.listVersions(state.currentProject.id),
-    state.projectRepository.listResults(state.currentProject.id)
+    state.projectRepository.listResults(state.currentProject.id),
+    state.projectRepository.listTakeReviews(state.currentProject.id)
   ]);
   renderExperimentLoop();
+  renderTakeReviewWorkbenchEntry();
+  scheduleProductionCommandRefresh();
 }
 
 async function persistCurrentProject({ syncPlan = false, parentVersionId, quiet = false } = {}) {
@@ -1461,6 +1657,7 @@ async function persistCurrentProject({ syncPlan = false, parentVersionId, quiet 
     state.projects = [saved, ...state.projects.filter((project) => project.id !== saved.id)].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     if (syncPlan && state.plan?.items?.length) await refreshExperimentLoop({ syncPlan: true, parentVersionId });
     else renderProjectHub();
+    scheduleProductionCommandRefresh();
     if (!quiet) setProjectFeedback({ status: "当前项目已保存到本地项目集合。" });
     return true;
   } catch (error) {
@@ -1492,6 +1689,69 @@ async function prepareProjectTransition() {
   return true;
 }
 
+function updatePriorityProjects(value) {
+  if (Array.isArray(value)) {
+    state.projects = value;
+  } else if (value?.id) {
+    state.projects = state.projects.map((project) => project.id === value.id ? value : project);
+  }
+  const current = state.projects.find((project) => project.id === state.currentProject?.id);
+  if (current) state.currentProject = current;
+}
+
+async function saveContentPriority(projectId, draft) {
+  if (!state.projectRepository) throw new Error("本地项目集合不可用，无法保存人工排期。");
+  const saved = await state.projectRepository.setProjectContentPriority(projectId, draft);
+  updatePriorityProjects(saved);
+  await refreshProductionCommandBoard();
+  return saved;
+}
+
+async function moveContentPriority(projectId, direction) {
+  if (!state.projectRepository) throw new Error("本地项目集合不可用，无法调整人工顺序。");
+  const projects = await state.projectRepository.moveProjectContentPriority(projectId, direction);
+  updatePriorityProjects(projects);
+  await refreshProductionCommandBoard();
+  return projects;
+}
+
+async function clearContentPriority(projectId) {
+  if (!state.projectRepository) throw new Error("本地项目集合不可用，无法清除人工排期。");
+  const saved = await state.projectRepository.clearProjectContentPriority(projectId);
+  updatePriorityProjects(saved);
+  await refreshProductionCommandBoard();
+  return saved;
+}
+
+async function switchToProject(targetId) {
+  const select = $("#project-select");
+  if (!targetId || targetId === state.currentProject?.id) return targetId === state.currentProject?.id;
+  const unsavedPriorityDrafts = contentPriorityBoard.unsavedDraftCount();
+  if (unsavedPriorityDrafts && !window.confirm(`当前有 ${unsavedPriorityDrafts} 张排期卡尚未保存，切换项目会丢弃这些输入。是否继续？`)) {
+    select.value = state.currentProject?.id || "";
+    return false;
+  }
+  select.value = targetId;
+  select.disabled = true;
+  if (!await prepareProjectTransition()) {
+    select.value = state.currentProject?.id || "";
+    renderProjectHub();
+    return false;
+  }
+  try {
+    state.projectSwitching = true;
+    await state.projectRepository.requestSwitch(targetId);
+    window.location.reload();
+    return true;
+  } catch (error) {
+    state.projectSwitching = false;
+    select.value = state.currentProject?.id || "";
+    setProjectFeedback({ error: `无法切换项目：${error.message || "本地项目不可用"}` });
+    renderProjectHub();
+    return false;
+  }
+}
+
 async function initializeProjectLayer(stored) {
   try {
     const database = await openProjectDatabase();
@@ -1518,27 +1778,7 @@ async function initializeProjectLayer(stored) {
   return stored;
 }
 
-$("#project-select").addEventListener("change", async (event) => {
-  const select = event.currentTarget;
-  const targetId = select.value;
-  if (!targetId || targetId === state.currentProject?.id) return;
-  select.disabled = true;
-  if (!await prepareProjectTransition()) {
-    select.value = state.currentProject?.id || "";
-    renderProjectHub();
-    return;
-  }
-  try {
-    state.projectSwitching = true;
-    await state.projectRepository.requestSwitch(targetId);
-    window.location.reload();
-  } catch (error) {
-    state.projectSwitching = false;
-    select.value = state.currentProject?.id || "";
-    setProjectFeedback({ error: `无法切换项目：${error.message || "本地项目不可用"}` });
-    renderProjectHub();
-  }
-});
+$("#project-select").addEventListener("change", (event) => { void switchToProject(event.currentTarget.value); });
 
 $("#new-project").addEventListener("click", async () => {
   const name = window.prompt("新项目名称", `新项目 ${state.projects.length + 1}`);
@@ -1564,6 +1804,7 @@ $("#rename-project").addEventListener("click", async () => {
     state.currentProject = renamed;
     state.projects = state.projects.map((project) => project.id === renamed.id ? renamed : project);
     renderProjectHub();
+    scheduleProductionCommandRefresh();
     setProjectFeedback({ status: "项目名称已更新。" });
   } catch (error) {
     setProjectFeedback({ error: `无法重命名项目：${error.message || "本地项目不可用"}` });
@@ -1691,6 +1932,106 @@ function markPlanStale(reason) {
   updateWorkflowGuide();
 }
 
+function takeReviewWorkbenchModel() {
+  if (!state.currentProject) return { available: false, message: "请先创建或选择一个本地项目。" };
+  if (!state.plan?.items?.length) return { available: false, message: "请先生成并保存当前批次方案。" };
+  if (state.planStale) return { available: false, message: "当前方案已过期，请重新生成后再进入片场过条。" };
+  if (state.plan.items.length < 2 || state.plan.items.length > 20) return { available: false, message: "片场过条台仅支持包含 2–20 个版本的同批方案。" };
+  try {
+    const planIds = new Set(state.plan.items.map((item) => item.id));
+    const versions = state.versions.filter((version) => planIds.has(version.testId));
+    if (versions.length !== state.plan.items.length) return { available: false, message: "当前方案正在同步到本地版本库，请稍后重试。" };
+    const reviews = state.plan.items.map((_, itemIndex) => buildDirectorTakeReview(state.plan, { itemIndex }));
+    const summary = summarizeTakeReviewBatch({ plan: state.plan, versions, reviews, records: state.takeReviews });
+    return { available: true, summary, followUps: deriveTakeReviewFollowUps(summary) };
+  } catch (error) {
+    return { available: false, message: error.message || "当前批次尚未达到人工过条条件。" };
+  }
+}
+
+function renderTakeReviewWorkbenchEntry() {
+  const button = $("#open-take-review-workbench");
+  if (!button) return;
+  const model = takeReviewWorkbenchModel();
+  button.disabled = !model.available;
+  if (!model.available) {
+    button.dataset.testId = "";
+    button.textContent = "打开片场过条台";
+    setNodeText("#take-review-workbench-state", "待准备");
+    setNodeText("#take-review-workbench-summary", model.message);
+    setNodeText("#take-review-reviewed-count", "0 / 0");
+    setNodeText("#take-review-primary-count", "0 / 0");
+    setNodeText("#take-review-issue-count", "0");
+    return;
+  }
+  const summary = model.summary;
+  const firstFollowUp = model.followUps[0];
+  button.dataset.testId = firstFollowUp?.testId || "";
+  button.textContent = summary.ready
+    ? "打开收工接片核对"
+    : firstFollowUp
+      ? `继续 ${firstFollowUp.testId} · ${firstFollowUp.statusLabel}`
+      : "打开片场过条台";
+  setNodeText("#take-review-workbench-state", summary.label);
+  setNodeText("#take-review-reviewed-count", `${summary.reviewedCount} / ${summary.totalVersions}`);
+  setNodeText("#take-review-primary-count", `${summary.primaryCount} / ${summary.totalVersions}`);
+  setNodeText("#take-review-issue-count", model.followUps.length);
+  setNodeText("#take-review-workbench-summary", summary.ready
+    ? "本批人工首选已齐且没有未解决项，可打开工作台完成收工接片核对。"
+    : `${firstFollowUp
+      ? `下一项 ${firstFollowUp.testId} · ${firstFollowUp.statusLabel}：${firstFollowUp.prompt}`
+      : summary.blockers.join("；") || "打开工作台逐条登记人工快检结论。"}${summary.staleCount ? `；另保留 ${summary.staleCount} 条旧方案只读记录` : ""}`);
+}
+
+async function refreshTakeReviewWorkbenchEntry() {
+  const repository = state.projectRepository;
+  const projectId = state.currentProject?.id;
+  if (!repository || !projectId || state.projectSwitching) return;
+  try {
+    const records = await repository.listTakeReviews(projectId);
+    if (state.projectRepository !== repository || state.currentProject?.id !== projectId) return;
+    state.takeReviews = records;
+    renderTakeReviewWorkbenchEntry();
+  } catch (error) {
+    setNodeText("#take-review-workbench-feedback", `片场记录未能刷新：${error.message || "本地记录不可用"}`);
+  }
+}
+
+async function openTakeReviewWorkbench(testId = "") {
+  const button = $("#open-take-review-workbench");
+  const initialLabel = button.textContent;
+  const opened = window.open("about:blank", "_blank");
+  button.disabled = true;
+  button.textContent = "正在保存当前方案…";
+  setNodeText("#take-review-workbench-feedback", "");
+  try {
+    if (!opened) throw new Error("浏览器阻止了新标签页，请允许弹出窗口后重试");
+    if (!await planAutosave.flush()) throw new Error("当前方案仍有未保存修改，请先重试保存");
+    const saved = await persistCurrentProject({ syncPlan: true, parentVersionId: pendingPlanParentVersionId, quiet: true });
+    if (!saved) throw new Error("当前方案未能写入本地项目库");
+    const model = takeReviewWorkbenchModel();
+    if (!model.available) throw new Error(model.message);
+    const parameters = new URLSearchParams({ projectId: state.currentProject.id });
+    if (testId) parameters.set("testId", testId);
+    opened.location.replace(`${chrome.runtime.getURL("take-review-workbench.html")}?${parameters}`);
+    opened.opener = null;
+    setNodeText("#take-review-workbench-feedback", "片场过条台已在新标签页打开；侧边栏会继续保留。" );
+    return true;
+  } catch (error) {
+    opened?.close();
+    const message = error.message || "片场过条台未能打开，请重试。";
+    setNodeText("#take-review-workbench-feedback", message);
+    return message;
+  } finally {
+    button.textContent = initialLabel;
+    renderTakeReviewWorkbenchEntry();
+  }
+}
+
+$("#open-take-review-workbench").addEventListener("click", (event) => {
+  void openTakeReviewWorkbench(event.currentTarget.dataset.testId || "");
+});
+
 function refreshPlanDerivedViews() {
   const assessment = renderPlanShootReadiness();
   planGapNavigator.render(assessment);
@@ -1698,6 +2039,7 @@ function refreshPlanDerivedViews() {
   directorMonitorTools.render();
   directorBlindReview.render();
   directorBatchTools.render();
+  renderTakeReviewWorkbenchEntry();
 }
 
 function runPlanDerivedRefresh() {
@@ -1710,6 +2052,7 @@ function runPlanDerivedRefresh() {
 function clearPlanToolFeedback() {
   setNodeText("#director-blind-review-feedback", "");
   setNodeText("#director-batch-board-feedback", "");
+  setNodeText("#take-review-workbench-feedback", "");
 }
 
 function planMatchesCurrentContext(plan, task, analysis) {
@@ -1729,8 +2072,9 @@ function focusWorkflowTarget(viewId, elementId) {
     if (disclosure) disclosure.open = true;
     const describedBy = requested?.disabled ? requested.getAttribute("aria-describedby")?.split(/\s+/)[0] : "";
     const target = describedBy ? document.getElementById(describedBy) : requested;
-    focusAndReveal(target);
+    return focusAndReveal(target);
   }
+  return true;
 }
 
 function runDirectorDeskAction(item) {
@@ -2656,7 +3000,8 @@ async function savePlanNow() {
   const snapshot = structuredClone(state.plan);
   const parentVersionId = pendingPlanParentVersionId;
   await chrome.storage.local.set({ creativePlan: snapshot });
-  await persistCurrentProject({ syncPlan: true, parentVersionId, quiet: true });
+  const persisted = await persistCurrentProject({ syncPlan: true, parentVersionId, quiet: true });
+  if (!persisted) throw new Error("当前方案未能同步到本地项目库");
   if (pendingPlanParentVersionId === parentVersionId) pendingPlanParentVersionId = undefined;
   return true;
 }
@@ -3015,7 +3360,8 @@ $("#open-update-page").addEventListener("click", () => {
 
 $("#export-update-backup").addEventListener("click", async () => {
   try {
-    await persistCurrentProject({ quiet: true });
+    const persisted = await persistCurrentProject({ quiet: true });
+    if (!persisted) throw new Error("当前项目未能同步到本地项目库，已取消备份导出");
     const snapshot = safeUpdateSnapshot({
       creativeTask: state.creativeTask,
       targetRoi: Number($("#target-roi").value || 1.5),
@@ -3027,11 +3373,15 @@ $("#export-update-backup").addEventListener("click", async () => {
     if (state.projectRepository) {
       snapshot.schemaVersion = 3;
       snapshot.portfolio = await state.projectRepository.exportPortfolio();
-      snapshot.notice = "包含当前浏览器中的本地项目集合、测试版本、结果记录和当前工作区；不包含原始 CSV、视频、图片、路径、Cookie、Token 或私钥。";
+      snapshot.notice = "包含当前浏览器中的本地项目集合、测试版本、结果记录、人工过条记录和当前工作区；不自动读取文件路径，不包含原始 CSV、视频、图片、Cookie、Token 或私钥。用户主动填写的白名单文本会随项目备份。";
     }
-    download(`qianchuan-director-workspace-v${CURRENT_VERSION}.json`, JSON.stringify(snapshot, null, 2), "application/json;charset=utf-8");
+    const backupText = JSON.stringify(snapshot, null, 2);
+    if (new TextEncoder().encode(backupText).byteLength > NON_MEDIA_IMPORT_POLICIES.backup.maxBytes) {
+      throw new Error("生成的完整工作区备份超过 12 MB 导入上限，请先归档不再使用的项目或记录");
+    }
+    download(`qianchuan-director-workspace-v${CURRENT_VERSION}.json`, backupText, "application/json;charset=utf-8");
     showUpdateMessage(state.projectRepository
-      ? "全部本地项目、测试版本、结果记录和当前工作区已导出；不包含原始 CSV、素材文件、账号凭据或私钥。"
+      ? "全部本地项目、测试版本、结果记录、人工过条记录和当前工作区已导出；不包含原始 CSV、素材文件、账号凭据或私钥。"
       : "当前工作区备份已导出；多项目数据库不可用，因此本次不包含项目集合。", "ready");
   } catch (error) {
     showUpdateMessage(`当前工作区无法导出：${error.message || "数据格式无效"}`, "error");
@@ -3049,7 +3399,7 @@ $("#update-backup-file").addEventListener("change", async (event) => {
     const restored = validateUpdateSnapshot(snapshot);
     const portfolio = snapshot.schemaVersion === 3 ? validateProjectPortfolio(snapshot.portfolio) : null;
     if (portfolio && !state.projectRepository) throw new Error("当前浏览器的多项目数据库不可用，不能安全导入项目集合");
-    const scope = portfolio ? `${portfolio.projects.length} 个项目、${portfolio.versions.length} 个测试版本、${portfolio.results.length} 条结果以及当前工作区` : "当前项目中的创作任务、复盘摘要和拍摄方案";
+    const scope = portfolio ? `${portfolio.projects.length} 个项目、${portfolio.versions.length} 个测试版本、${portfolio.results.length} 条结果、${portfolio.takeReviews.length} 条人工过条记录以及当前工作区` : "当前项目中的创作任务、复盘摘要和拍摄方案";
     if (!window.confirm(`导入会覆盖${scope}。此操作不会删除原始素材文件，但无法在页面内撤销。是否继续？`)) {
       showUpdateMessage("已取消导入，当前工作区没有变化。", "ready");
       return;
@@ -3819,8 +4169,10 @@ async function initializeWorkspace() {
     $("#onboarding-guide").hidden = false;
   }
   finalizeWorkspaceUi();
-  await persistCurrentProject({ syncPlan: Boolean(state.plan?.items?.length), quiet: true });
-  if (!state.plan?.items?.length) await refreshExperimentLoop();
+  const deferVersionSync = await shouldDeferStartupVersionSyncForPendingCommand();
+  await persistCurrentProject({ syncPlan: Boolean(state.plan?.items?.length) && !deferVersionSync, quiet: true });
+  if (!state.plan?.items?.length || deferVersionSync) await refreshExperimentLoop();
+  await refreshProductionCommandBoard({ consumePending: true });
   await loadSessionAnalysisHandoff();
   try {
     await maybeRunAutomaticUpdateCheck();
@@ -3839,6 +4191,13 @@ chrome.storage?.onChanged?.addListener((changes, areaName) => {
   void initialize()
     .then(() => handleSessionAnalysisHandoff(changes[ANALYSIS_HANDOFF_INBOX_KEY]?.newValue, { announce: true }))
     .catch((error) => setFeedback("#analysis-handoff-message", "#analysis-handoff-error", { error: `无法响应工作台会话交接：${error.message || "会话存储不可用"}` }));
+});
+
+window.addEventListener("focus", () => {
+  void initialize().then(() => Promise.all([
+    refreshTakeReviewWorkbenchEntry(),
+    refreshProductionCommandBoard()
+  ]));
 });
 
 void initialize();
